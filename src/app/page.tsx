@@ -1,9 +1,8 @@
-export default function Home() {
-  return (
-    <main className="flex flex-1 items-center justify-center">
-      <p className="text-sm text-muted-foreground">
-        Interior Design Studio — under construction.
-      </p>
-    </main>
-  );
+import { redirect } from "next/navigation";
+import { createClient } from "@/lib/supabase/server";
+
+export default async function Home() {
+  const supabase = await createClient();
+  const { data } = await supabase.auth.getUser();
+  redirect(data.user ? "/dashboard" : "/login");
 }

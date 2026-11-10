@@ -1,50 +1,108 @@
-import { createClient } from "@/lib/supabase/server";
-import { signOut } from "@/lib/actions/auth";
-import { Button } from "@/components/ui/button";
+import { requireCurrentUserContext } from "@/lib/data/organization";
+import {
+  getDashboardSummary,
+  getMaterialVsLabour,
+  getMonthlyFinancials,
+  getPackageComparison,
+  getProjectCostChart,
+  getRecentProjects,
+} from "@/lib/data/dashboard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { SummaryCards } from "@/components/dashboard/summary-cards";
+import { RecentProjectsTable } from "@/components/dashboard/recent-projects-table";
+import { QuickActions } from "@/components/dashboard/quick-actions";
+import { ProjectCostChart } from "@/components/charts/project-cost-chart";
+import {
+  MonthlyRevenueExpensesChart,
+  ProfitabilityTrendChart,
+} from "@/components/charts/monthly-financials-chart";
+import { MaterialVsLabourChart } from "@/components/charts/material-vs-labour-chart";
+import { PackageComparisonChart } from "@/components/charts/package-comparison-chart";
 
-/**
- * Minimal authenticated placeholder proving auth + organization
- * provisioning work end to end. The real dashboard (summary cards, charts,
- * recent projects) is built in Phase 4 against live data — this page is not
- * that, it's a Phase 3 verification point.
- */
 export default async function DashboardPage() {
-  const supabase = await createClient();
-  const { data: userData } = await supabase.auth.getUser();
-  const { data: membership } = await supabase
-    .from("organization_members")
-    .select("role, organizations(name)")
-    .eq("user_id", userData.user?.id ?? "")
-    .maybeSingle();
+  const ctx = await requireCurrentUserContext();
+  const orgId = ctx.organizationId;
+
+  const [summary, projectCosts, monthlyFinancials, materialVsLabour, packageComparison, recentProjects] =
+    await Promise.all([
+      getDashboardSummary(orgId),
+      getProjectCostChart(orgId),
+      getMonthlyFinancials(orgId),
+      getMaterialVsLabour(orgId),
+      getPackageComparison(orgId),
+      getRecentProjects(orgId),
+    ]);
 
   return (
-    <main className="flex flex-1 items-center justify-center p-8">
-      <Card className="w-full max-w-md">
+    <div className="flex flex-col gap-6">
+      <div className="flex flex-col gap-1">
+        <h1 className="font-heading text-2xl font-semibold tracking-tight">Dashboard</h1>
+        <p className="text-sm text-muted-foreground">
+          Welcome back{ctx.fullName ? `, ${ctx.fullName}` : ""} — here&apos;s how {ctx.organizationName} is doing.
+        </p>
+      </div>
+
+      <QuickActions />
+
+      <SummaryCards summary={summary} />
+
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm font-medium">Project-wise Estimated Cost</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ProjectCostChart data={projectCosts} />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm font-medium">Monthly Revenue vs Expenses</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <MonthlyRevenueExpensesChart data={monthlyFinancials} />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm font-medium">Profitability Trend</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ProfitabilityTrendChart data={monthlyFinancials} />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm font-medium">Material vs Labour Distribution</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <MaterialVsLabourChart data={materialVsLabour} />
+          </CardContent>
+        </Card>
+
+        <Card className="lg:col-span-2">
+          <CardHeader>
+            <CardTitle className="text-sm font-medium">
+              Basic vs Premium vs Luxury — Average Rate per Sq Ft
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <PackageComparisonChart data={packageComparison} />
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
         <CardHeader>
-          <CardTitle>Signed in</CardTitle>
+          <CardTitle className="text-sm font-medium">Recent Projects</CardTitle>
         </CardHeader>
-        <CardContent className="flex flex-col gap-2 text-sm">
-          <p>
-            <span className="text-muted-foreground">Email:</span>{" "}
-            {userData.user?.email}
-          </p>
-          <p>
-            <span className="text-muted-foreground">Organization:</span>{" "}
-            {(membership as { organizations?: { name?: string } } | null)?.organizations
-              ?.name ?? "Not provisioned yet"}
-          </p>
-          <p>
-            <span className="text-muted-foreground">Role:</span>{" "}
-            {(membership as { role?: string } | null)?.role ?? "—"}
-          </p>
-          <form action={signOut} className="mt-4">
-            <Button type="submit" variant="outline" className="w-full">
-              Sign out
-            </Button>
-          </form>
+        <CardContent>
+          <RecentProjectsTable projects={recentProjects} />
         </CardContent>
       </Card>
-    </main>
+    </div>
   );
 }
