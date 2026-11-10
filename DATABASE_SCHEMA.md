@@ -89,3 +89,13 @@ PostgreSQL via Supabase. All tables use UUID primary keys (`gen_random_uuid()`),
 2. Financial tables (`quotations`, `project_expenses`, `project_payments`, `material_rates`) additionally require role in (`super_admin`, `studio_owner`, `manager`, `accountant`) for write access; `designer`/`viewer` get read-only or no access per the master prompt's role matrix (finalized in `ARCHITECTURE.md`).
 3. `profiles` is readable by any authenticated user (for assigning designers across the UI) but only self-writable.
 4. `super_admin` role bypasses organization scoping via a separate policy branch (platform-level support access), never via a client-exposed service-role key.
+
+## Implementation notes (as actually applied in `supabase/migrations/`)
+
+A few deviations from the bullet lists above, made while writing the real migrations and intentional rather than oversights:
+
+- **`organization_id` is denormalized onto every child table**, including ones not listed above as having one (`room_openings`, `kitchen_accessories`, `wardrobe_components`, `boq_items`, `quotation_items`, `project_expenses`, `rate_history`, etc.), kept in sync by `BEFORE INSERT` triggers that copy it from the parent row. This turns every RLS policy into a single indexed equality check instead of a join chain up through projects/rooms/estimations — simpler and significantly faster under Postgres RLS.
+- **`quotations` has an `organization_id` column**, required by its own unique constraint (`organization_id, quotation_number`) and by the RLS strategy above, even though it wasn't listed in the `quotations` bullet list.
+- **`materials` has `archived_at`**, matching the "Conventions" soft-delete rule even though its own bullet list omitted the column.
+- **`quotation_snapshots` has no UPDATE/DELETE RLS policy at all** (default-deny), backed by a `BEFORE UPDATE OR DELETE` trigger that raises an exception — true immutability enforced at two layers, not just "no UI button for it."
+- Bootstrapping a brand-new organization (before any `organization_members` row exists) is handled by a `SECURITY DEFINER` RPC, `create_organization_with_owner(org_name)`, rather than two sequential client-side inserts — the obvious "insert org, then insert membership" sequence can't satisfy both tables' RLS policies in order, since the membership-insert policy requires the caller to already be `studio_owner` of that org.

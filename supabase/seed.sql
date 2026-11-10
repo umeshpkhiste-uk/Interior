@@ -1,0 +1,17 @@
+-- Intentionally a no-op for now.
+--
+-- Every piece of "default rate" data in DATABASE_SCHEMA.md (materials,
+-- material_rates, plywood_rates, kitchen_accessories catalog, package
+-- component rates, etc.) is scoped to an organization_id. There is no
+-- organization row to attach sample data to until a real studio signs up
+-- and creates one, and seeding fake auth.users/organizations here would
+-- mean this file quietly creates production-looking fake tenants on
+-- every `supabase db reset`.
+--
+-- Instead, the Excel workbook's default rates (documented in
+-- docs/EXCEL_ANALYSIS_RAW.md) are applied at the application level, as a
+-- "seed this organization with Excel defaults" action that runs once when
+-- an organization is first created (see the onboarding flow built in a
+-- later phase). That keeps the rates editable through the same code path
+-- a studio uses to edit them later, rather than a separate SQL-only path
+-- that the app's own validation/versioning never sees.
