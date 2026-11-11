@@ -37,7 +37,8 @@ Open [http://localhost:3000](http://localhost:3000).
 - [`ARCHITECTURE.md`](./ARCHITECTURE.md) — folder structure, calculation-engine rules, multi-tenancy, role matrix
 - [`EXCEL_TO_WEBAPP_MAPPING.md`](./EXCEL_TO_WEBAPP_MAPPING.md) — Excel → feature → DB → calculation mapping, with every ambiguity in the source workbook resolved and documented
 - [`docs/EXCEL_ANALYSIS_RAW.md`](./docs/EXCEL_ANALYSIS_RAW.md) — underlying cell-level formula analysis of the source workbook
-- `DEPLOYMENT_GUIDE.md` / `TESTING_GUIDE.md` — added in later phases as those concerns come online
+- [`DEPLOYMENT_GUIDE.md`](./DEPLOYMENT_GUIDE.md) — Vercel project setup, environment variables, Supabase auth URL configuration, rollback
+- [`TESTING_GUIDE.md`](./TESTING_GUIDE.md) — unit tests, Excel-sample regression testing, E2E verification pattern, RLS/security audit, mobile responsiveness checks
 
 ## Status
 
