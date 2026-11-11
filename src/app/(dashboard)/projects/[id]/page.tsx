@@ -19,11 +19,11 @@ import { listBoqItems, getBoqSettings } from "@/lib/data/boq";
 import { listQuotations } from "@/lib/data/quotations";
 import { getDesignFee } from "@/lib/data/design-fee";
 import { listRoomOptions } from "@/lib/data/rooms";
+import { ProfitabilityPanel } from "@/components/profitability/profitability-panel";
+import { ExpensesPanel } from "@/components/expenses/expenses-panel";
+import { listExpenses, listPayments } from "@/lib/data/expenses";
 
-const STUB_TABS = [
-  { value: "expenses", label: "Expenses", phase: "Phase 8" },
-  { value: "reports", label: "Reports", phase: "Phase 9" },
-];
+const STUB_TABS = [{ value: "reports", label: "Reports", phase: "Phase 9" }];
 
 export default async function ProjectDetailPage({
   params,
@@ -35,16 +35,19 @@ export default async function ProjectDetailPage({
   const project = await getProjectById(ctx.organizationId, id);
   if (!project) notFound();
 
-  const [clients, designers, rooms, roomOptions, boqItems, boqSettings, quotations, designFee] = await Promise.all([
-    listClientOptions(ctx.organizationId),
-    listDesignerOptions(ctx.organizationId),
-    listRoomsForProject(ctx.organizationId, id),
-    listRoomOptions(ctx.organizationId, id),
-    listBoqItems(ctx.organizationId, id),
-    getBoqSettings(ctx.organizationId, id),
-    listQuotations(ctx.organizationId, id),
-    getDesignFee(ctx.organizationId, id),
-  ]);
+  const [clients, designers, rooms, roomOptions, boqItems, boqSettings, quotations, designFee, expenses, payments] =
+    await Promise.all([
+      listClientOptions(ctx.organizationId),
+      listDesignerOptions(ctx.organizationId),
+      listRoomsForProject(ctx.organizationId, id),
+      listRoomOptions(ctx.organizationId, id),
+      listBoqItems(ctx.organizationId, id),
+      getBoqSettings(ctx.organizationId, id),
+      listQuotations(ctx.organizationId, id),
+      getDesignFee(ctx.organizationId, id),
+      listExpenses(ctx.organizationId, id),
+      listPayments(ctx.organizationId, id),
+    ]);
 
   return (
     <div className="flex flex-col gap-6">
@@ -82,6 +85,8 @@ export default async function ProjectDetailPage({
           <TabsTrigger value="quotations">Quotations</TabsTrigger>
           <TabsTrigger value="design-fee">Design Fee</TabsTrigger>
           <TabsTrigger value="packages">Packages</TabsTrigger>
+          <TabsTrigger value="cost-profit">Cost &amp; Profit</TabsTrigger>
+          <TabsTrigger value="expenses">Expenses</TabsTrigger>
           {STUB_TABS.map((tab) => (
             <TabsTrigger key={tab.value} value={tab.value}>
               {tab.label}
@@ -151,6 +156,12 @@ export default async function ProjectDetailPage({
         </TabsContent>
         <TabsContent value="packages">
           <PackagesPanel organizationId={ctx.organizationId} projectId={id} carpetArea={project.carpet_area} />
+        </TabsContent>
+        <TabsContent value="cost-profit">
+          <ProfitabilityPanel organizationId={ctx.organizationId} projectId={id} />
+        </TabsContent>
+        <TabsContent value="expenses">
+          <ExpensesPanel projectId={id} expenses={expenses} payments={payments} />
         </TabsContent>
 
         {STUB_TABS.map((tab) => (

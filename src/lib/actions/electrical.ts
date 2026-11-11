@@ -58,7 +58,7 @@ async function recomputeElectrical(organizationId: string, projectId: string) {
 
   const { error } = await supabase
     .from("electrical_project_settings")
-    .update({ material_cost: breakdown.material, total_cost: breakdown.cost, selling_price: price })
+    .update({ material_cost: breakdown.material, labour_cost: breakdown.labour, total_cost: breakdown.cost, selling_price: price })
     .eq("project_id", projectId);
   if (error) throw error;
 }

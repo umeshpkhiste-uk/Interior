@@ -496,6 +496,7 @@ export type Database = {
         Row: {
           created_at: string
           db_mcb_cost: number
+          labour_cost: number
           labour_share_pct: number
           margin_pct: number
           material_cost: number
@@ -509,6 +510,7 @@ export type Database = {
         Insert: {
           created_at?: string
           db_mcb_cost?: number
+          labour_cost?: number
           labour_share_pct?: number
           margin_pct?: number
           material_cost?: number
@@ -522,6 +524,7 @@ export type Database = {
         Update: {
           created_at?: string
           db_mcb_cost?: number
+          labour_cost?: number
           labour_share_pct?: number
           margin_pct?: number
           material_cost?: number
@@ -919,11 +922,16 @@ export type Database = {
           effective_date: string | null
           id: string
           last_updated_at: string
+          market_high: number | null
+          market_low: number | null
           material_id: string
+          monthly_volume: number
           notes: string | null
           organization_id: string
+          planned_increase_pct: number
           previous_rate: number | null
           revised_rate: number | null
+          round_step: number
           supplier_id: string | null
           updated_at: string
         }
@@ -933,11 +941,16 @@ export type Database = {
           effective_date?: string | null
           id?: string
           last_updated_at?: string
+          market_high?: number | null
+          market_low?: number | null
           material_id: string
+          monthly_volume?: number
           notes?: string | null
           organization_id: string
+          planned_increase_pct?: number
           previous_rate?: number | null
           revised_rate?: number | null
+          round_step?: number
           supplier_id?: string | null
           updated_at?: string
         }
@@ -947,11 +960,16 @@ export type Database = {
           effective_date?: string | null
           id?: string
           last_updated_at?: string
+          market_high?: number | null
+          market_low?: number | null
           material_id?: string
+          monthly_volume?: number
           notes?: string | null
           organization_id?: string
+          planned_increase_pct?: number
           previous_rate?: number | null
           revised_rate?: number | null
+          round_step?: number
           supplier_id?: string | null
           updated_at?: string
         }
@@ -1871,6 +1889,8 @@ export type Database = {
         Row: {
           created_at: string
           organization_id: string
+          other_head_labour_cost: number
+          other_head_material_cost: number
           overhead_pct: number
           project_duration_months: number
           project_id: string
@@ -1881,6 +1901,8 @@ export type Database = {
         Insert: {
           created_at?: string
           organization_id: string
+          other_head_labour_cost?: number
+          other_head_material_cost?: number
           overhead_pct?: number
           project_duration_months?: number
           project_id: string
@@ -1891,6 +1913,8 @@ export type Database = {
         Update: {
           created_at?: string
           organization_id?: string
+          other_head_labour_cost?: number
+          other_head_material_cost?: number
           overhead_pct?: number
           project_duration_months?: number
           project_id?: string
