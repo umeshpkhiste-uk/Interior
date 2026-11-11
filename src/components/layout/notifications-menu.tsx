@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -26,10 +27,12 @@ export function NotificationsMenu() {
         }
       />
       <DropdownMenuContent align="end" className="w-64">
-        <DropdownMenuLabel>Notifications</DropdownMenuLabel>
-        <p className="px-2 py-6 text-center text-sm text-muted-foreground">
-          You&apos;re all caught up.
-        </p>
+        <DropdownMenuGroup>
+          <DropdownMenuLabel>Notifications</DropdownMenuLabel>
+          <p className="px-2 py-6 text-center text-sm text-muted-foreground">
+            You&apos;re all caught up.
+          </p>
+        </DropdownMenuGroup>
       </DropdownMenuContent>
     </DropdownMenu>
   );
