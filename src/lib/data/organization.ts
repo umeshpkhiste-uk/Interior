@@ -56,3 +56,16 @@ export async function requireCurrentUserContext(): Promise<CurrentUserContext> {
     role: membership.role,
   };
 }
+
+export type OrganizationProfile = Database["public"]["Tables"]["organizations"]["Row"];
+
+export async function getOrganizationProfile(organizationId: string): Promise<OrganizationProfile> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("organizations")
+    .select("*")
+    .eq("id", organizationId)
+    .single();
+  if (error) throw error;
+  return data;
+}

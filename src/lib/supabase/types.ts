@@ -1130,6 +1130,7 @@ export type Database = {
           id: string
           logo_url: string | null
           name: string
+          next_project_seq: number
           quotation_prefix: string
           updated_at: string
         }
@@ -1144,6 +1145,7 @@ export type Database = {
           id?: string
           logo_url?: string | null
           name: string
+          next_project_seq?: number
           quotation_prefix?: string
           updated_at?: string
         }
@@ -1158,6 +1160,7 @@ export type Database = {
           id?: string
           logo_url?: string | null
           name?: string
+          next_project_seq?: number
           quotation_prefix?: string
           updated_at?: string
         }
@@ -2512,9 +2515,23 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      accept_organization_invite: { Args: never; Returns: string }
+      allocate_project_code: { Args: { p_org_id: string }; Returns: string }
       create_organization_with_owner: {
         Args: { org_name: string }
         Returns: string
+      }
+      get_organization_members: {
+        Args: { p_org_id: string }
+        Returns: {
+          accepted_at: string
+          email: string
+          full_name: string
+          invited_at: string
+          member_id: string
+          role: Database["public"]["Enums"]["org_role"]
+          user_id: string
+        }[]
       }
     }
     Enums: {
