@@ -16,10 +16,18 @@ export type CurrentUserContext = {
 /**
  * Resolves the signed-in user's single active organization membership.
  * Every (dashboard) route needs this, so it's centralized here rather than
- * re-querying ad hoc. Redirects to /login if unauthenticated, and to
- * /verify if the user hasn't completed organization provisioning yet
- * (should be rare — the auth callback provisions it immediately on email
- * confirmation).
+ * re-querying ad hoc. Redirects to /login if unauthenticated.
+ *
+ * Organization provisioning normally happens in /auth/callback right after
+ * email confirmation, but that's not the only way a user can end up
+ * authenticated without ever completing that step (e.g. an email
+ * provider's security scanner pre-fetching and consuming the one-time
+ * confirmation code before the user's own click, then the user simply
+ * logging in with email/password afterward). Rather than send a confirmed,
+ * authenticated user to a dead-end "confirm your email" page — which the
+ * proxy middleware then bounces straight back to /dashboard, an infinite
+ * redirect loop — self-heal here by provisioning on the spot. The RPC is
+ * idempotent, so this is safe to attempt on every request that needs it.
  */
 export async function requireCurrentUserContext(): Promise<CurrentUserContext> {
   const supabase = await createClient();
@@ -29,12 +37,26 @@ export async function requireCurrentUserContext(): Promise<CurrentUserContext> {
     redirect("/login");
   }
 
-  const { data: membership, error: membershipError } = await supabase
+  let { data: membership, error: membershipError } = await supabase
     .from("organization_members")
     .select("organization_id, role, organizations(name)")
     .eq("user_id", userData.user.id)
     .limit(1)
     .maybeSingle();
+
+  if (!membershipError && !membership) {
+    const { error: provisionError } = await supabase.rpc("create_organization_with_owner", {
+      org_name: (userData.user.user_metadata?.organization_name as string | undefined) ?? "My Studio",
+    });
+    if (!provisionError) {
+      ({ data: membership, error: membershipError } = await supabase
+        .from("organization_members")
+        .select("organization_id, role, organizations(name)")
+        .eq("user_id", userData.user.id)
+        .limit(1)
+        .maybeSingle());
+    }
+  }
 
   if (membershipError || !membership) {
     redirect("/verify");

@@ -33,15 +33,25 @@ export async function GET(request: NextRequest) {
         .maybeSingle();
 
       if (!existingMembership) {
-        const { data: invitedOrgId } = await supabase.rpc("accept_organization_invite");
+        const { data: invitedOrgId, error: inviteError } = await supabase.rpc(
+          "accept_organization_invite"
+        );
+        if (inviteError) {
+          console.error("accept_organization_invite failed", inviteError);
+        }
 
         if (!invitedOrgId) {
           const organizationName =
             (data.user.user_metadata?.organization_name as string | undefined) ??
             "My Studio";
-          await supabase.rpc("create_organization_with_owner", {
+          const { error: provisionError } = await supabase.rpc("create_organization_with_owner", {
             org_name: organizationName,
           });
+          if (provisionError) {
+            // Not fatal here — requireCurrentUserContext() self-heals and retries
+            // this same RPC on the user's next request, so this is just visibility.
+            console.error("create_organization_with_owner failed", provisionError);
+          }
         }
       }
 

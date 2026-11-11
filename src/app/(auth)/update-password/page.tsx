@@ -28,7 +28,13 @@ export default function UpdatePasswordPage() {
   async function onSubmit(values: UpdatePasswordInput) {
     setServerError(null);
     const result = await updatePassword(values);
-    if (result.error) setServerError(result.error);
+    if (result.error) {
+      setServerError(result.error);
+      return;
+    }
+    // Hard navigation, not router.push — see the comment on signIn() in lib/actions/auth.ts.
+    // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- intentional hard navigation, see comment above
+    window.location.assign("/dashboard");
   }
 
   return (
