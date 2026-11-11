@@ -28,11 +28,13 @@ describe("flooringCost", () => {
     expect(result.boxes).toBe(Math.ceil(expectedTiles / 4));
   });
 
-  it("RoomCost = tileCost + skirting + roomArea×(layingLabour+adhesiveGrout)", () => {
+  it("Material = tileCost + skirting + roomArea×adhesiveGrout; Labour = roomArea×layingLabour only", () => {
+    // Verified against the source workbook's own sample (sheet 07): adhesive & grout is
+    // counted as material in the Material-vs-Labour split, not labour.
     const result = flooringCost(base);
-    const expectedMaterial = result.boxes * 1800 + 60 * 35;
+    const expectedMaterial = result.boxes * 1800 + 60 * 35 + 150 * 10;
     expect(result.material).toBe(expectedMaterial);
-    expect(result.labour).toBe(150 * (25 + 10));
+    expect(result.labour).toBe(150 * 25);
     expect(result.cost).toBe(result.material + result.labour);
   });
 });

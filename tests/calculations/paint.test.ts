@@ -49,13 +49,24 @@ describe("paintCost", () => {
   it("Labour = areaToPaint×labourRate + wallpaperRolls×fixingRate", () => {
     const q = computePaintQuantities(baseInput);
     const result = paintCost({
-      ...q, paintRate: 300, primerRate: 150, puttyRate: 25, labourRate: 18,
+      ...q, canSize: 10, paintRate: 300, primerRate: 150, puttyRate: 25, labourRate: 18,
       wallpaperRate: 2500, wallpaperFixingRate: 400,
     });
     expect(result.labour).toBeCloseTo(q.areaToPaint * 18 + q.wallpaperRolls * 400, 5);
     expect(result.material).toBeCloseTo(
-      q.paintLitres * 300 + q.primerLitres * 150 + q.puttyKg * 25 + q.wallpaperRolls * 2500,
+      q.cans * 10 * 300 + q.primerLitres * 150 + q.puttyKg * 25 + q.wallpaperRolls * 2500,
       5
     );
+  });
+
+  it("Paint is costed by whole cans purchased, not litres actually needed (source sheet: 68L needed, 7 cans × 10L × ₹380 = ₹26,600, not 68×380=₹25,840)", () => {
+    const result = paintCost({
+      areaToPaint: 3731, paintLitres: 68, cans: 7, primerLitres: 32, puttyKg: 237, wallpaperRolls: 3,
+      canSize: 10, paintRate: 380, primerRate: 220, puttyRate: 26, labourRate: 14,
+      wallpaperRate: 2200, wallpaperFixingRate: 350,
+    });
+    expect(result.material).toBe(46402);
+    expect(result.labour).toBe(53284);
+    expect(result.cost).toBe(99686);
   });
 });

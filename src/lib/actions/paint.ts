@@ -27,6 +27,7 @@ async function recomputePaint(paintEstimationId: string) {
   });
   const breakdown = paintCost({
     ...quantities,
+    canSize: Number(row.can_size ?? 0),
     paintRate: Number(row.paint_rate ?? 0),
     primerRate: Number(row.primer_rate ?? 0),
     puttyRate: Number(row.putty_rate ?? 0),

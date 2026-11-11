@@ -47,6 +47,7 @@ export function computePaintQuantities(input: PaintQuantitiesInput): PaintQuanti
 }
 
 export interface PaintCostInput extends PaintQuantities {
+  canSize: number;
   paintRate: number;
   primerRate: number;
   puttyRate: number;
@@ -62,9 +63,11 @@ export interface PaintCostBreakdown {
 }
 
 export function paintCost(input: PaintCostInput): PaintCostBreakdown {
-  // `cans` is a purchasing-quantity derivation only; cost is priced per litre.
+  // Paint is bought by the whole can — cost is cans×canSize×rate, not litres-needed×rate
+  // (you can't purchase a partial can). Primer/putty/wallpaper have no such pack-size
+  // rounding in the source sheet and are costed on the quantity needed directly.
   const material =
-    input.paintLitres * input.paintRate +
+    input.cans * input.canSize * input.paintRate +
     input.primerLitres * input.primerRate +
     input.puttyKg * input.puttyRate +
     input.wallpaperRolls * input.wallpaperRate;

@@ -42,8 +42,10 @@ export function flooringCost(input: FlooringCostInput): FlooringCostBreakdown {
 
   const tileCost = boxes * input.pricePerBox;
   const skirtingCost = input.skirtingLength * input.skirtingRate;
-  const material = tileCost + skirtingCost;
-  const labour = input.roomArea * (input.layingLabourRate + input.adhesiveGroutRate);
+  // Adhesive & grout is a materials-consumed cost in the source sheet's Tool 12
+  // (Material vs Labour) split, not labour — only the laying work itself is labour.
+  const material = tileCost + skirtingCost + input.roomArea * input.adhesiveGroutRate;
+  const labour = input.roomArea * input.layingLabourRate;
 
   return { tiles, boxes, material, labour, cost: material + labour };
 }
