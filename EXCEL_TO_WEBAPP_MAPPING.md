@@ -6,7 +6,15 @@ Per the master prompt: workbook formulas are preserved exactly where they define
 
 ## Resolved design decisions
 
-These 14 items were flagged during formula analysis as unclear, inconsistent, or Excel-layout-specific. Each is resolved here with a stated rationale, consistent with "all default prices must be editable" and "do not invent missing formulas" — none of these decisions invents a calculation; they decide *data modeling* and *UI/sync behavior* the spreadsheet couldn't express.
+These items were flagged during formula analysis as unclear, inconsistent, or Excel-layout-specific. Each is resolved here with a stated rationale, consistent with "all default prices must be editable" and "do not invent missing formulas" — none of these decisions invents a calculation; they decide *data modeling* and *UI/sync behavior* the spreadsheet couldn't express.
+
+| # | Issue | Decision | Rationale |
+|---|-------|----------|-----------|
+| 15 | `ceiling_estimations` (created in Phase 3) had a `lighting_rate` for downlights but no distinct rate for LED cove-strip lighting, a different per-rft cost basis | Added `led_strip_rate numeric` column (Phase 6 migration); `Material` now adds `coveLength × ledStripRate` alongside `downlightQty × lightingRate` | Matches the source sheet's formula exactly (`+ coveLength×LEDstripRate`); the two lighting costs are priced differently in the workbook and must not share one rate |
+| 16 | `paint_estimations` had no `margin_pct`/`rounding_unit` (every other estimator has a cost→price step) and no distinct rate for wallpaper *installation* (per roll) separate from wall-paint labour (per sqft) | Added `margin_pct`, `rounding_unit` (default ₹500, matching the source sheet), and `wallpaper_fixing_rate` columns | Without these, paint/wallpaper would be the only module with no sellable price, and wallpaper fixing would be incorrectly costed at the wall-paint per-sqft labour rate |
+| 17 | `flooring_estimations` had `material_cost`/`labour_cost`/`total_cost` but no `margin_pct`, `rounding_unit`, or `selling_price`, despite the source sheet explicitly rounding flooring price to the nearest ₹500 | Added `margin_pct`, `rounding_unit`, `selling_price` columns | Same reasoning as #16 — flooring must be sellable at a price, not just a cost |
+| 18b | The source sheet's ceiling labour formula is `area×labourRate + coveLength×coveWorkRate` — a separate per-rft labour rate for cove construction distinct from the flat area-based labour rate, missed on the first Phase 6 pass | Added `cove_labour_rate` column | Same reasoning as #15 — cove construction and flat-ceiling labour are priced differently in the source sheet |
+| 18 | Ply & Laminate has no first-class pricing home: `panel_cut_lists` is a per-row cut list, not a place to hold one project-wide laminate rate, edge-band rate, fixings %, margin, or resulting price | Added `plywood_project_settings` (one row per project), mirroring the existing `electrical_project_settings` pattern | Decision #8 already gives Ply & Laminate its own BOQ line; it needs the same cost→price mechanics as every other module to produce that line's amount |
 
 | # | Issue | Decision | Rationale |
 |---|-------|----------|-----------|

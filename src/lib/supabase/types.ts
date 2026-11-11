@@ -161,6 +161,7 @@ export type Database = {
         Row: {
           board_dimensions: string | null
           ceiling_type: Database["public"]["Enums"]["ceiling_type"]
+          cove_labour_rate: number
           cove_length: number
           cover_pct: number
           created_at: string
@@ -170,6 +171,7 @@ export type Database = {
           labour_cost: number
           labour_rate: number
           led_strip_length: number
+          led_strip_rate: number
           lighting_rate: number
           margin_pct: number
           material_cost: number
@@ -185,6 +187,7 @@ export type Database = {
         Insert: {
           board_dimensions?: string | null
           ceiling_type?: Database["public"]["Enums"]["ceiling_type"]
+          cove_labour_rate?: number
           cove_length?: number
           cover_pct?: number
           created_at?: string
@@ -194,6 +197,7 @@ export type Database = {
           labour_cost?: number
           labour_rate?: number
           led_strip_length?: number
+          led_strip_rate?: number
           lighting_rate?: number
           margin_pct?: number
           material_cost?: number
@@ -209,6 +213,7 @@ export type Database = {
         Update: {
           board_dimensions?: string | null
           ceiling_type?: Database["public"]["Enums"]["ceiling_type"]
+          cove_labour_rate?: number
           cove_length?: number
           cover_pct?: number
           created_at?: string
@@ -218,6 +223,7 @@ export type Database = {
           labour_cost?: number
           labour_rate?: number
           led_strip_length?: number
+          led_strip_rate?: number
           lighting_rate?: number
           margin_pct?: number
           material_cost?: number
@@ -491,24 +497,39 @@ export type Database = {
           created_at: string
           db_mcb_cost: number
           labour_share_pct: number
+          margin_pct: number
+          material_cost: number
           organization_id: string
           project_id: string
+          rounding_unit: number
+          selling_price: number
+          total_cost: number
           updated_at: string
         }
         Insert: {
           created_at?: string
           db_mcb_cost?: number
           labour_share_pct?: number
+          margin_pct?: number
+          material_cost?: number
           organization_id: string
           project_id: string
+          rounding_unit?: number
+          selling_price?: number
+          total_cost?: number
           updated_at?: string
         }
         Update: {
           created_at?: string
           db_mcb_cost?: number
           labour_share_pct?: number
+          margin_pct?: number
+          material_cost?: number
           organization_id?: string
           project_id?: string
+          rounding_unit?: number
+          selling_price?: number
+          total_cost?: number
           updated_at?: string
         }
         Relationships: [
@@ -536,11 +557,14 @@ export type Database = {
           id: string
           labour_cost: number
           laying_labour_rate: number | null
+          margin_pct: number
           material_cost: number
           organization_id: string
           pieces_per_box: number | null
           price_per_box: number | null
           room_id: string
+          rounding_unit: number
+          selling_price: number
           skirting_length: number
           skirting_rate: number
           tile_length: number | null
@@ -556,11 +580,14 @@ export type Database = {
           id?: string
           labour_cost?: number
           laying_labour_rate?: number | null
+          margin_pct?: number
           material_cost?: number
           organization_id: string
           pieces_per_box?: number | null
           price_per_box?: number | null
           room_id: string
+          rounding_unit?: number
+          selling_price?: number
           skirting_length?: number
           skirting_rate?: number
           tile_length?: number | null
@@ -576,11 +603,14 @@ export type Database = {
           id?: string
           labour_cost?: number
           laying_labour_rate?: number | null
+          margin_pct?: number
           material_cost?: number
           organization_id?: string
           pieces_per_box?: number | null
           price_per_box?: number | null
           room_id?: string
+          rounding_unit?: number
+          selling_price?: number
           skirting_length?: number
           skirting_rate?: number
           tile_length?: number | null
@@ -1228,6 +1258,7 @@ export type Database = {
           id: string
           labour_cost: number
           labour_rate: number | null
+          margin_pct: number
           material_cost: number
           net_wall_area: number
           organization_id: string
@@ -1240,9 +1271,11 @@ export type Database = {
           putty_coverage: number | null
           putty_rate: number | null
           room_id: string | null
+          rounding_unit: number
           selling_price: number
           total_cost: number
           updated_at: string
+          wallpaper_fixing_rate: number
           wallpaper_rate: number | null
           wallpaper_roll_length: number | null
           wallpaper_roll_width: number | null
@@ -1258,6 +1291,7 @@ export type Database = {
           id?: string
           labour_cost?: number
           labour_rate?: number | null
+          margin_pct?: number
           material_cost?: number
           net_wall_area?: number
           organization_id: string
@@ -1270,9 +1304,11 @@ export type Database = {
           putty_coverage?: number | null
           putty_rate?: number | null
           room_id?: string | null
+          rounding_unit?: number
           selling_price?: number
           total_cost?: number
           updated_at?: string
+          wallpaper_fixing_rate?: number
           wallpaper_rate?: number | null
           wallpaper_roll_length?: number | null
           wallpaper_roll_width?: number | null
@@ -1288,6 +1324,7 @@ export type Database = {
           id?: string
           labour_cost?: number
           labour_rate?: number | null
+          margin_pct?: number
           material_cost?: number
           net_wall_area?: number
           organization_id?: string
@@ -1300,9 +1337,11 @@ export type Database = {
           putty_coverage?: number | null
           putty_rate?: number | null
           room_id?: string | null
+          rounding_unit?: number
           selling_price?: number
           total_cost?: number
           updated_at?: string
+          wallpaper_fixing_rate?: number
           wallpaper_rate?: number | null
           wallpaper_roll_length?: number | null
           wallpaper_roll_width?: number | null
@@ -1396,6 +1435,66 @@ export type Database = {
             foreignKeyName: "panel_cut_lists_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      plywood_project_settings: {
+        Row: {
+          created_at: string
+          edge_band_rate_per_rft: number
+          fixings_pct: number
+          laminate_rate_per_sheet: number
+          margin_pct: number
+          material_cost: number
+          organization_id: string
+          project_id: string
+          rounding_unit: number
+          selling_price: number
+          total_cost: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          edge_band_rate_per_rft?: number
+          fixings_pct?: number
+          laminate_rate_per_sheet?: number
+          margin_pct?: number
+          material_cost?: number
+          organization_id: string
+          project_id: string
+          rounding_unit?: number
+          selling_price?: number
+          total_cost?: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          edge_band_rate_per_rft?: number
+          fixings_pct?: number
+          laminate_rate_per_sheet?: number
+          margin_pct?: number
+          material_cost?: number
+          organization_id?: string
+          project_id?: string
+          rounding_unit?: number
+          selling_price?: number
+          total_cost?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "plywood_project_settings_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "plywood_project_settings_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: true
             referencedRelation: "projects"
             referencedColumns: ["id"]
           },

@@ -3,15 +3,16 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { requireCurrentUserContext } from "@/lib/data/organization";
 import { getProjectById, listClientOptions, listDesignerOptions } from "@/lib/data/projects";
+import { listRoomsForProject } from "@/lib/data/rooms";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ProjectFormDialog } from "@/components/projects/project-form-dialog";
 import { ProjectStatusBadge } from "@/components/projects/project-status-badge";
 import { Badge } from "@/components/ui/badge";
+import { RoomsPanel } from "@/components/rooms/rooms-panel";
+import { EstimatorsPanel } from "@/components/estimators/estimators-panel";
 
 const STUB_TABS = [
-  { value: "rooms", label: "Room Measurements", phase: "Phase 6" },
-  { value: "estimators", label: "Estimators", phase: "Phase 6" },
   { value: "boq", label: "BOQ", phase: "Phase 7" },
   { value: "quotations", label: "Quotations", phase: "Phase 7" },
   { value: "design-fee", label: "Design Fee", phase: "Phase 7" },
@@ -30,9 +31,10 @@ export default async function ProjectDetailPage({
   const project = await getProjectById(ctx.organizationId, id);
   if (!project) notFound();
 
-  const [clients, designers] = await Promise.all([
+  const [clients, designers, rooms] = await Promise.all([
     listClientOptions(ctx.organizationId),
     listDesignerOptions(ctx.organizationId),
+    listRoomsForProject(ctx.organizationId, id),
   ]);
 
   return (
@@ -65,6 +67,8 @@ export default async function ProjectDetailPage({
       <Tabs defaultValue="overview">
         <TabsList>
           <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="rooms">Room Measurements</TabsTrigger>
+          <TabsTrigger value="estimators">Estimators</TabsTrigger>
           {STUB_TABS.map((tab) => (
             <TabsTrigger key={tab.value} value={tab.value}>
               {tab.label}
@@ -109,6 +113,13 @@ export default async function ProjectDetailPage({
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="rooms">
+          <RoomsPanel projectId={id} rooms={rooms} />
+        </TabsContent>
+        <TabsContent value="estimators">
+          <EstimatorsPanel projectId={id} />
         </TabsContent>
 
         {STUB_TABS.map((tab) => (
