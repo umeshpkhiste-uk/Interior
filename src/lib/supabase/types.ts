@@ -2063,6 +2063,32 @@ export type Database = {
           },
         ]
       }
+      quotation_number_sequences: {
+        Row: {
+          financial_year: string
+          next_seq: number
+          organization_id: string
+        }
+        Insert: {
+          financial_year: string
+          next_seq?: number
+          organization_id: string
+        }
+        Update: {
+          financial_year?: string
+          next_seq?: number
+          organization_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quotation_number_sequences_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       quotation_payment_stages: {
         Row: {
           created_at: string
@@ -2616,6 +2642,7 @@ export type Database = {
     Functions: {
       accept_organization_invite: { Args: never; Returns: string }
       allocate_project_code: { Args: { p_org_id: string }; Returns: string }
+      allocate_quotation_number: { Args: { p_org_id: string }; Returns: string }
       create_organization_with_owner: {
         Args: { org_name: string }
         Returns: string

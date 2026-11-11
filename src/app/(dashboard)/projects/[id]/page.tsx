@@ -11,12 +11,16 @@ import { ProjectStatusBadge } from "@/components/projects/project-status-badge";
 import { Badge } from "@/components/ui/badge";
 import { RoomsPanel } from "@/components/rooms/rooms-panel";
 import { EstimatorsPanel } from "@/components/estimators/estimators-panel";
+import { BoqPanel } from "@/components/boq/boq-panel";
+import { QuotationsPanel } from "@/components/quotations/quotations-panel";
+import { DesignFeePanel } from "@/components/design-fee/design-fee-panel";
+import { PackagesPanel } from "@/components/packages/packages-panel";
+import { listBoqItems, getBoqSettings } from "@/lib/data/boq";
+import { listQuotations } from "@/lib/data/quotations";
+import { getDesignFee } from "@/lib/data/design-fee";
+import { listRoomOptions } from "@/lib/data/rooms";
 
 const STUB_TABS = [
-  { value: "boq", label: "BOQ", phase: "Phase 7" },
-  { value: "quotations", label: "Quotations", phase: "Phase 7" },
-  { value: "design-fee", label: "Design Fee", phase: "Phase 7" },
-  { value: "packages", label: "Packages", phase: "Phase 7" },
   { value: "expenses", label: "Expenses", phase: "Phase 8" },
   { value: "reports", label: "Reports", phase: "Phase 9" },
 ];
@@ -31,10 +35,15 @@ export default async function ProjectDetailPage({
   const project = await getProjectById(ctx.organizationId, id);
   if (!project) notFound();
 
-  const [clients, designers, rooms] = await Promise.all([
+  const [clients, designers, rooms, roomOptions, boqItems, boqSettings, quotations, designFee] = await Promise.all([
     listClientOptions(ctx.organizationId),
     listDesignerOptions(ctx.organizationId),
     listRoomsForProject(ctx.organizationId, id),
+    listRoomOptions(ctx.organizationId, id),
+    listBoqItems(ctx.organizationId, id),
+    getBoqSettings(ctx.organizationId, id),
+    listQuotations(ctx.organizationId, id),
+    getDesignFee(ctx.organizationId, id),
   ]);
 
   return (
@@ -69,6 +78,10 @@ export default async function ProjectDetailPage({
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="rooms">Room Measurements</TabsTrigger>
           <TabsTrigger value="estimators">Estimators</TabsTrigger>
+          <TabsTrigger value="boq">BOQ</TabsTrigger>
+          <TabsTrigger value="quotations">Quotations</TabsTrigger>
+          <TabsTrigger value="design-fee">Design Fee</TabsTrigger>
+          <TabsTrigger value="packages">Packages</TabsTrigger>
           {STUB_TABS.map((tab) => (
             <TabsTrigger key={tab.value} value={tab.value}>
               {tab.label}
@@ -120,6 +133,24 @@ export default async function ProjectDetailPage({
         </TabsContent>
         <TabsContent value="estimators">
           <EstimatorsPanel projectId={id} />
+        </TabsContent>
+        <TabsContent value="boq">
+          <BoqPanel
+            projectId={id}
+            items={boqItems}
+            settings={boqSettings}
+            rooms={roomOptions}
+            carpetArea={project.carpet_area}
+          />
+        </TabsContent>
+        <TabsContent value="quotations">
+          <QuotationsPanel projectId={id} quotations={quotations} />
+        </TabsContent>
+        <TabsContent value="design-fee">
+          <DesignFeePanel projectId={id} designFee={designFee} />
+        </TabsContent>
+        <TabsContent value="packages">
+          <PackagesPanel organizationId={ctx.organizationId} projectId={id} carpetArea={project.carpet_area} />
         </TabsContent>
 
         {STUB_TABS.map((tab) => (
