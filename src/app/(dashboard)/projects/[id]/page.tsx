@@ -22,8 +22,8 @@ import { listRoomOptions } from "@/lib/data/rooms";
 import { ProfitabilityPanel } from "@/components/profitability/profitability-panel";
 import { ExpensesPanel } from "@/components/expenses/expenses-panel";
 import { listExpenses, listPayments } from "@/lib/data/expenses";
-
-const STUB_TABS = [{ value: "reports", label: "Reports", phase: "Phase 9" }];
+import { InspirationPanel } from "@/components/inspiration/inspiration-panel";
+import { ReportsPanel } from "@/components/reports/reports-panel";
 
 export default async function ProjectDetailPage({
   params,
@@ -87,11 +87,8 @@ export default async function ProjectDetailPage({
           <TabsTrigger value="packages">Packages</TabsTrigger>
           <TabsTrigger value="cost-profit">Cost &amp; Profit</TabsTrigger>
           <TabsTrigger value="expenses">Expenses</TabsTrigger>
-          {STUB_TABS.map((tab) => (
-            <TabsTrigger key={tab.value} value={tab.value}>
-              {tab.label}
-            </TabsTrigger>
-          ))}
+          <TabsTrigger value="inspiration">Inspiration</TabsTrigger>
+          <TabsTrigger value="reports">Reports</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview">
@@ -163,20 +160,12 @@ export default async function ProjectDetailPage({
         <TabsContent value="expenses">
           <ExpensesPanel projectId={id} expenses={expenses} payments={payments} />
         </TabsContent>
-
-        {STUB_TABS.map((tab) => (
-          <TabsContent key={tab.value} value={tab.value}>
-            <Card>
-              <CardContent className="flex flex-col items-center gap-2 py-16 text-center">
-                <p className="text-sm font-medium">{tab.label} ships in {tab.phase}</p>
-                <p className="max-w-sm text-sm text-muted-foreground">
-                  This section of the project workspace is built in a later phase, following the
-                  project&apos;s phased delivery plan.
-                </p>
-              </CardContent>
-            </Card>
-          </TabsContent>
-        ))}
+        <TabsContent value="inspiration">
+          <InspirationPanel organizationId={ctx.organizationId} projectId={id} />
+        </TabsContent>
+        <TabsContent value="reports">
+          <ReportsPanel organizationId={ctx.organizationId} projectId={id} />
+        </TabsContent>
       </Tabs>
     </div>
   );
