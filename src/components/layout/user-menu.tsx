@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { signOut } from "@/lib/actions/auth";
 
-function initials(name: string | null, email: string): string {
+export function initials(name: string | null, email: string): string {
   if (name && name.trim().length > 0) {
     return name
       .trim()

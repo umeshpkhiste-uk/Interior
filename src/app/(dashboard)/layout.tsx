@@ -20,7 +20,11 @@ export default async function DashboardLayout({
 
   return (
     <div className="flex min-h-screen w-full">
-      <Sidebar organizationName={ctx.organizationName} />
+      <Sidebar
+        organizationName={ctx.organizationName}
+        fullName={ctx.fullName}
+        email={ctx.email}
+      />
       <div className="flex min-h-screen min-w-0 flex-1 flex-col">
         <Topbar
           fullName={ctx.fullName}
