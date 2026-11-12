@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import type { Database } from "@/lib/supabase/types";
@@ -28,8 +29,16 @@ export type CurrentUserContext = {
  * proxy middleware then bounces straight back to /dashboard, an infinite
  * redirect loop — self-heal here by provisioning on the spot. The RPC is
  * idempotent, so this is safe to attempt on every request that needs it.
+ *
+ * Wrapped in React's cache() because the layout and the page it renders
+ * (and sometimes a component further down, e.g. estimators-panel) each call
+ * this independently. Without memoization that's 2-3x the auth.getUser()
+ * network round trips and DB queries per request for identical results.
+ * cache() scopes to a single request/render pass, so this never leaks
+ * across users or requests, and Server Actions (separate invocations) are
+ * unaffected.
  */
-export async function requireCurrentUserContext(): Promise<CurrentUserContext> {
+export const requireCurrentUserContext = cache(async (): Promise<CurrentUserContext> => {
   const supabase = await createClient();
   const { data: userData, error: userError } = await supabase.auth.getUser();
 
@@ -37,12 +46,20 @@ export async function requireCurrentUserContext(): Promise<CurrentUserContext> {
     redirect("/login");
   }
 
-  let { data: membership, error: membershipError } = await supabase
-    .from("organization_members")
-    .select("organization_id, role, organizations(name)")
-    .eq("user_id", userData.user.id)
-    .limit(1)
-    .maybeSingle();
+  // Independent of each other (both only need the user id), so run
+  // concurrently instead of as two sequential round trips.
+  let [
+    { data: membership, error: membershipError },
+    { data: profile },
+  ] = await Promise.all([
+    supabase
+      .from("organization_members")
+      .select("organization_id, role, organizations(name)")
+      .eq("user_id", userData.user.id)
+      .limit(1)
+      .maybeSingle(),
+    supabase.from("profiles").select("full_name").eq("id", userData.user.id).maybeSingle(),
+  ]);
 
   if (!membershipError && !membership) {
     const { error: provisionError } = await supabase.rpc("create_organization_with_owner", {
@@ -62,12 +79,6 @@ export async function requireCurrentUserContext(): Promise<CurrentUserContext> {
     redirect("/verify");
   }
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("full_name")
-    .eq("id", userData.user.id)
-    .maybeSingle();
-
   return {
     userId: userData.user.id,
     email: userData.user.email ?? "",
@@ -77,7 +88,7 @@ export async function requireCurrentUserContext(): Promise<CurrentUserContext> {
       (membership.organizations as { name: string } | null)?.name ?? "Studio",
     role: membership.role,
   };
-}
+});
 
 export type OrganizationProfile = Database["public"]["Tables"]["organizations"]["Row"];
 
