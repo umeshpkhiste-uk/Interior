@@ -16,7 +16,7 @@ import { NAV_ITEMS } from "./nav-config";
 import { GlobalSearch } from "./global-search";
 import { ThemeToggle } from "./theme-toggle";
 import { initials } from "./user-menu";
-import { signOut } from "@/lib/actions/auth";
+import { SignOutDialog } from "./sign-out-dialog";
 import { cn } from "@/lib/utils";
 
 export function MobileNav({
@@ -81,15 +81,15 @@ export function MobileNav({
               <p className="truncate text-sm font-medium">{fullName ?? "Studio member"}</p>
               <p className="truncate text-xs text-muted-foreground">{email}</p>
             </div>
-            <form action={signOut}>
+            <SignOutDialog>
               <button
-                type="submit"
+                type="button"
                 aria-label="Sign out"
                 className="flex size-7 shrink-0 items-center justify-center rounded-full text-foreground/60 transition-colors hover:bg-accent/50 hover:text-foreground"
               >
                 <LogOut className="size-4" />
               </button>
-            </form>
+            </SignOutDialog>
           </div>
         </div>
       </SheetContent>

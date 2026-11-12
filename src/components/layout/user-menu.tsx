@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { LogOut, Settings, User } from "lucide-react";
 import Link from "next/link";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -12,7 +13,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { signOut } from "@/lib/actions/auth";
+import { SignOutDialog } from "./sign-out-dialog";
 
 export function initials(name: string | null, email: string): string {
   if (name && name.trim().length > 0) {
@@ -35,7 +36,10 @@ export function UserMenu({
   email: string;
   role: string;
 }) {
+  const [confirmOpen, setConfirmOpen] = useState(false);
+
   return (
+    <>
     <DropdownMenu>
       <DropdownMenuTrigger className="flex items-center gap-2 rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring">
         <Avatar className="size-8">
@@ -72,18 +76,16 @@ export function UserMenu({
           }
         />
         <DropdownMenuSeparator />
-        <form action={signOut}>
-          <DropdownMenuItem
-            variant="destructive"
-            render={
-              <button type="submit" className="w-full">
-                <LogOut />
-                Sign out
-              </button>
-            }
-          />
-        </form>
+        <DropdownMenuItem
+          variant="destructive"
+          onClick={() => setConfirmOpen(true)}
+        >
+          <LogOut />
+          Sign out
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
+    <SignOutDialog open={confirmOpen} onOpenChange={setConfirmOpen} />
+    </>
   );
 }

@@ -10,7 +10,7 @@ import { GlobalSearch } from "./global-search";
 import { ThemeToggle } from "./theme-toggle";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { initials } from "./user-menu";
-import { signOut } from "@/lib/actions/auth";
+import { SignOutDialog } from "./sign-out-dialog";
 import {
   Tooltip,
   TooltipContent,
@@ -125,22 +125,15 @@ export function Sidebar({
                 </p>
                 <p className="truncate text-xs text-sidebar-foreground/60">{email}</p>
               </div>
-              <form action={signOut}>
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <button
-                        type="submit"
-                        aria-label="Sign out"
-                        className="flex size-7 shrink-0 items-center justify-center rounded-full text-sidebar-foreground/60 transition-colors hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
-                      >
-                        <LogOut className="size-4" />
-                      </button>
-                    }
-                  />
-                  <TooltipContent side="top">Sign out</TooltipContent>
-                </Tooltip>
-              </form>
+              <SignOutDialog>
+                <button
+                  type="button"
+                  aria-label="Sign out"
+                  className="flex size-7 shrink-0 items-center justify-center rounded-full text-sidebar-foreground/60 transition-colors hover:bg-sidebar-accent/50 hover:text-sidebar-foreground"
+                >
+                  <LogOut className="size-4" />
+                </button>
+              </SignOutDialog>
             </>
           )}
         </div>
