@@ -35,10 +35,10 @@ export function MobileNav({ organizationName }: { organizationName: string }) {
                     href={item.href}
                     onClick={() => setOpen(false)}
                     className={cn(
-                      "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                      "relative flex items-center gap-3 rounded-full px-3 py-2 text-sm font-medium transition-colors",
                       isActive
-                        ? "bg-accent text-accent-foreground"
-                        : "text-foreground/70 hover:bg-accent/60 hover:text-accent-foreground"
+                        ? "font-semibold text-foreground after:absolute after:inset-y-1.5 after:left-0 after:w-0.5 after:rounded-full after:bg-foreground"
+                        : "text-foreground/60 hover:bg-accent/50 hover:text-foreground"
                     )}
                   >
                     <item.icon className="size-4 shrink-0" />
