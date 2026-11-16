@@ -339,6 +339,66 @@ export type Database = {
           },
         ]
       }
+      client_invoices: {
+        Row: {
+          amount: number
+          created_at: string
+          due_date: string | null
+          gst_pct: number
+          id: string
+          invoice_date: string
+          invoice_number: string
+          milestone: string
+          organization_id: string
+          project_id: string
+          total: number
+          updated_at: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          due_date?: string | null
+          gst_pct?: number
+          id?: string
+          invoice_date?: string
+          invoice_number: string
+          milestone: string
+          organization_id: string
+          project_id: string
+          total?: number
+          updated_at?: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          due_date?: string | null
+          gst_pct?: number
+          id?: string
+          invoice_date?: string
+          invoice_number?: string
+          milestone?: string
+          organization_id?: string
+          project_id?: string
+          total?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "client_invoices_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "client_invoices_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       clients: {
         Row: {
           address: string | null
@@ -1812,6 +1872,7 @@ export type Database = {
           logo_url: string | null
           name: string
           next_design_revision_seq: number
+          next_invoice_seq: number
           next_lead_quote_seq: number
           next_lead_seq: number
           next_project_seq: number
@@ -1834,6 +1895,7 @@ export type Database = {
           logo_url?: string | null
           name: string
           next_design_revision_seq?: number
+          next_invoice_seq?: number
           next_lead_quote_seq?: number
           next_lead_seq?: number
           next_project_seq?: number
@@ -1856,6 +1918,7 @@ export type Database = {
           logo_url?: string | null
           name?: string
           next_design_revision_seq?: number
+          next_invoice_seq?: number
           next_lead_quote_seq?: number
           next_lead_seq?: number
           next_project_seq?: number
@@ -2400,6 +2463,7 @@ export type Database = {
           created_at: string
           direction: Database["public"]["Enums"]["payment_direction"]
           id: string
+          invoice_id: string | null
           method: string | null
           organization_id: string
           payment_date: string
@@ -2414,6 +2478,7 @@ export type Database = {
           created_at?: string
           direction: Database["public"]["Enums"]["payment_direction"]
           id?: string
+          invoice_id?: string | null
           method?: string | null
           organization_id: string
           payment_date?: string
@@ -2428,6 +2493,7 @@ export type Database = {
           created_at?: string
           direction?: Database["public"]["Enums"]["payment_direction"]
           id?: string
+          invoice_id?: string | null
           method?: string | null
           organization_id?: string
           payment_date?: string
@@ -2438,6 +2504,13 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "project_payments_invoice_id_fkey"
+            columns: ["invoice_id"]
+            isOneToOne: false
+            referencedRelation: "client_invoices"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "project_payments_organization_id_fkey"
             columns: ["organization_id"]
@@ -3728,6 +3801,7 @@ export type Database = {
         Args: { p_org_id: string }
         Returns: string
       }
+      allocate_invoice_number: { Args: { p_org_id: string }; Returns: string }
       allocate_lead_code: { Args: { p_org_id: string }; Returns: string }
       allocate_lead_quote_number: {
         Args: { p_org_id: string }

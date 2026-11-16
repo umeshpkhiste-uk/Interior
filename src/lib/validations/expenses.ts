@@ -30,5 +30,6 @@ export const paymentSchema = z.object({
   paymentDate: z.string().trim().optional().or(z.literal("")),
   method: z.string().optional().or(z.literal("")),
   referenceNote: z.string().optional().or(z.literal("")),
+  invoiceId: z.string().uuid().optional().or(z.literal("")),
 });
 export type PaymentInput = z.infer<typeof paymentSchema>;

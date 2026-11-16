@@ -23,6 +23,7 @@ export async function addExpense(projectId: string, input: ExpenseInput): Promis
   });
   if (error) return { error: error.message };
   revalidatePath(`/projects/${projectId}`);
+  revalidatePath("/profit-billing");
   return { error: null, data: undefined };
 }
 
@@ -49,10 +50,12 @@ export async function addPayment(projectId: string, input: PaymentInput): Promis
     payment_date: parsed.data.paymentDate || new Date().toISOString().slice(0, 10),
     method: parsed.data.method || null,
     reference_note: parsed.data.referenceNote || null,
+    invoice_id: parsed.data.invoiceId || null,
     recorded_by: ctx.userId,
   });
   if (error) return { error: error.message };
   revalidatePath(`/projects/${projectId}`);
+  revalidatePath("/profit-billing");
   return { error: null, data: undefined };
 }
 
