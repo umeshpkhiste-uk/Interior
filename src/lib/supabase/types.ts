@@ -12,6 +12,31 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.18"
   }
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
   public: {
     Tables: {
       audit_logs: {
@@ -873,6 +898,185 @@ export type Database = {
           },
         ]
       }
+      lead_followups: {
+        Row: {
+          channel: Database["public"]["Enums"]["lead_followup_channel"]
+          created_at: string
+          followup_date: string
+          handled_by: string | null
+          id: string
+          lead_id: string
+          organization_id: string
+          outcome: string | null
+          stage_snapshot: Database["public"]["Enums"]["lead_stage"] | null
+          updated_at: string
+        }
+        Insert: {
+          channel?: Database["public"]["Enums"]["lead_followup_channel"]
+          created_at?: string
+          followup_date?: string
+          handled_by?: string | null
+          id?: string
+          lead_id: string
+          organization_id: string
+          outcome?: string | null
+          stage_snapshot?: Database["public"]["Enums"]["lead_stage"] | null
+          updated_at?: string
+        }
+        Update: {
+          channel?: Database["public"]["Enums"]["lead_followup_channel"]
+          created_at?: string
+          followup_date?: string
+          handled_by?: string | null
+          id?: string
+          lead_id?: string
+          organization_id?: string
+          outcome?: string | null
+          stage_snapshot?: Database["public"]["Enums"]["lead_stage"] | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lead_followups_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lead_followups_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      lead_quotations: {
+        Row: {
+          created_at: string
+          discount_pct: number
+          final_amount: number | null
+          id: string
+          lead_id: string
+          organization_id: string
+          quote_date: string
+          quote_number: string
+          quoted_amount: number
+          status: Database["public"]["Enums"]["lead_quotation_status"]
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          discount_pct?: number
+          final_amount?: number | null
+          id?: string
+          lead_id: string
+          organization_id: string
+          quote_date?: string
+          quote_number: string
+          quoted_amount: number
+          status?: Database["public"]["Enums"]["lead_quotation_status"]
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          discount_pct?: number
+          final_amount?: number | null
+          id?: string
+          lead_id?: string
+          organization_id?: string
+          quote_date?: string
+          quote_number?: string
+          quoted_amount?: number
+          status?: Database["public"]["Enums"]["lead_quotation_status"]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "lead_quotations_lead_id_fkey"
+            columns: ["lead_id"]
+            isOneToOne: false
+            referencedRelation: "leads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "lead_quotations_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      leads: {
+        Row: {
+          area: string | null
+          budget: number | null
+          client_name: string
+          created_at: string
+          custom_1: string | null
+          custom_2: string | null
+          enquiry_date: string
+          id: string
+          lead_code: string
+          next_followup_date: string | null
+          notes: string | null
+          organization_id: string
+          phone: string | null
+          property_type: string | null
+          source: Database["public"]["Enums"]["lead_source"]
+          stage: Database["public"]["Enums"]["lead_stage"]
+          updated_at: string
+        }
+        Insert: {
+          area?: string | null
+          budget?: number | null
+          client_name: string
+          created_at?: string
+          custom_1?: string | null
+          custom_2?: string | null
+          enquiry_date?: string
+          id?: string
+          lead_code: string
+          next_followup_date?: string | null
+          notes?: string | null
+          organization_id: string
+          phone?: string | null
+          property_type?: string | null
+          source?: Database["public"]["Enums"]["lead_source"]
+          stage?: Database["public"]["Enums"]["lead_stage"]
+          updated_at?: string
+        }
+        Update: {
+          area?: string | null
+          budget?: number | null
+          client_name?: string
+          created_at?: string
+          custom_1?: string | null
+          custom_2?: string | null
+          enquiry_date?: string
+          id?: string
+          lead_code?: string
+          next_followup_date?: string | null
+          notes?: string | null
+          organization_id?: string
+          phone?: string | null
+          property_type?: string | null
+          source?: Database["public"]["Enums"]["lead_source"]
+          stage?: Database["public"]["Enums"]["lead_stage"]
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "leads_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       material_categories: {
         Row: {
           created_at: string
@@ -1178,6 +1382,8 @@ export type Database = {
           id: string
           logo_url: string | null
           name: string
+          next_lead_quote_seq: number
+          next_lead_seq: number
           next_project_seq: number
           quotation_prefix: string
           updated_at: string
@@ -1193,6 +1399,8 @@ export type Database = {
           id?: string
           logo_url?: string | null
           name: string
+          next_lead_quote_seq?: number
+          next_lead_seq?: number
           next_project_seq?: number
           quotation_prefix?: string
           updated_at?: string
@@ -1208,6 +1416,8 @@ export type Database = {
           id?: string
           logo_url?: string | null
           name?: string
+          next_lead_quote_seq?: number
+          next_lead_seq?: number
           next_project_seq?: number
           quotation_prefix?: string
           updated_at?: string
@@ -2665,6 +2875,11 @@ export type Database = {
     }
     Functions: {
       accept_organization_invite: { Args: never; Returns: string }
+      allocate_lead_code: { Args: { p_org_id: string }; Returns: string }
+      allocate_lead_quote_number: {
+        Args: { p_org_id: string }
+        Returns: string
+      }
       allocate_project_code: { Args: { p_org_id: string }; Returns: string }
       allocate_quotation_number: { Args: { p_org_id: string }; Returns: string }
       create_organization_with_owner: {
@@ -2743,6 +2958,37 @@ export type Database = {
         | "u_shaped"
         | "parallel"
         | "island"
+      lead_followup_channel:
+        | "call"
+        | "site_visit"
+        | "studio_meeting"
+        | "message"
+        | "email"
+        | "other"
+      lead_quotation_status:
+        | "sent"
+        | "revised"
+        | "accepted"
+        | "declined"
+        | "superseded"
+      lead_source:
+        | "referral"
+        | "social_media"
+        | "website"
+        | "past_client"
+        | "builder_tie_up"
+        | "signboard"
+        | "exhibition"
+        | "walk_in"
+        | "other"
+      lead_stage:
+        | "new"
+        | "site_visit_done"
+        | "design_shared"
+        | "quotation_sent"
+        | "negotiation"
+        | "won"
+        | "lost"
       opening_type: "door" | "window" | "other"
       org_role:
         | "super_admin"
@@ -2935,6 +3181,9 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {
       boq_source_module: [
@@ -3000,6 +3249,41 @@ export const Constants = {
         "u_shaped",
         "parallel",
         "island",
+      ],
+      lead_followup_channel: [
+        "call",
+        "site_visit",
+        "studio_meeting",
+        "message",
+        "email",
+        "other",
+      ],
+      lead_quotation_status: [
+        "sent",
+        "revised",
+        "accepted",
+        "declined",
+        "superseded",
+      ],
+      lead_source: [
+        "referral",
+        "social_media",
+        "website",
+        "past_client",
+        "builder_tie_up",
+        "signboard",
+        "exhibition",
+        "walk_in",
+        "other",
+      ],
+      lead_stage: [
+        "new",
+        "site_visit_done",
+        "design_shared",
+        "quotation_sent",
+        "negotiation",
+        "won",
+        "lost",
       ],
       opening_type: ["door", "window", "other"],
       org_role: [
