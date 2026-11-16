@@ -278,6 +278,67 @@ export type Database = {
           },
         ]
       }
+      client_approvals: {
+        Row: {
+          approval_for: string
+          approved_by: string | null
+          approved_on: string | null
+          channel: Database["public"]["Enums"]["client_approval_channel"] | null
+          created_at: string
+          id: string
+          organization_id: string
+          project_id: string
+          room_area: string | null
+          sent_on: string
+          updated_at: string
+        }
+        Insert: {
+          approval_for: string
+          approved_by?: string | null
+          approved_on?: string | null
+          channel?:
+            | Database["public"]["Enums"]["client_approval_channel"]
+            | null
+          created_at?: string
+          id?: string
+          organization_id: string
+          project_id: string
+          room_area?: string | null
+          sent_on?: string
+          updated_at?: string
+        }
+        Update: {
+          approval_for?: string
+          approved_by?: string | null
+          approved_on?: string | null
+          channel?:
+            | Database["public"]["Enums"]["client_approval_channel"]
+            | null
+          created_at?: string
+          id?: string
+          organization_id?: string
+          project_id?: string
+          room_area?: string | null
+          sent_on?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "client_approvals_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "client_approvals_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       clients: {
         Row: {
           address: string | null
@@ -456,6 +517,69 @@ export type Database = {
           },
           {
             foreignKeyName: "design_fees_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      design_revisions: {
+        Row: {
+          client_asked_for: string | null
+          created_at: string
+          drawing: string
+          id: string
+          organization_id: string
+          project_id: string
+          reply_on: string | null
+          reply_status: Database["public"]["Enums"]["design_revision_reply_status"]
+          revision_code: string
+          room_area: string | null
+          sent_on: string
+          updated_at: string
+          version: string
+        }
+        Insert: {
+          client_asked_for?: string | null
+          created_at?: string
+          drawing: string
+          id?: string
+          organization_id: string
+          project_id: string
+          reply_on?: string | null
+          reply_status?: Database["public"]["Enums"]["design_revision_reply_status"]
+          revision_code: string
+          room_area?: string | null
+          sent_on?: string
+          updated_at?: string
+          version?: string
+        }
+        Update: {
+          client_asked_for?: string | null
+          created_at?: string
+          drawing?: string
+          id?: string
+          organization_id?: string
+          project_id?: string
+          reply_on?: string | null
+          reply_status?: Database["public"]["Enums"]["design_revision_reply_status"]
+          revision_code?: string
+          room_area?: string | null
+          sent_on?: string
+          updated_at?: string
+          version?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "design_revisions_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "design_revisions_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "projects"
@@ -660,6 +784,60 @@ export type Database = {
             columns: ["room_id"]
             isOneToOne: false
             referencedRelation: "project_rooms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      handover_checks: {
+        Row: {
+          check_item: string
+          checked_by: string | null
+          checked_on: string | null
+          created_at: string
+          id: string
+          organization_id: string
+          project_id: string
+          result: Database["public"]["Enums"]["handover_check_result"] | null
+          room_area: string | null
+          updated_at: string
+        }
+        Insert: {
+          check_item: string
+          checked_by?: string | null
+          checked_on?: string | null
+          created_at?: string
+          id?: string
+          organization_id: string
+          project_id: string
+          result?: Database["public"]["Enums"]["handover_check_result"] | null
+          room_area?: string | null
+          updated_at?: string
+        }
+        Update: {
+          check_item?: string
+          checked_by?: string | null
+          checked_on?: string | null
+          created_at?: string
+          id?: string
+          organization_id?: string
+          project_id?: string
+          result?: Database["public"]["Enums"]["handover_check_result"] | null
+          room_area?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "handover_checks_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "handover_checks_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
             referencedColumns: ["id"]
           },
         ]
@@ -1382,9 +1560,11 @@ export type Database = {
           id: string
           logo_url: string | null
           name: string
+          next_design_revision_seq: number
           next_lead_quote_seq: number
           next_lead_seq: number
           next_project_seq: number
+          next_snag_seq: number
           quotation_prefix: string
           updated_at: string
         }
@@ -1399,9 +1579,11 @@ export type Database = {
           id?: string
           logo_url?: string | null
           name: string
+          next_design_revision_seq?: number
           next_lead_quote_seq?: number
           next_lead_seq?: number
           next_project_seq?: number
+          next_snag_seq?: number
           quotation_prefix?: string
           updated_at?: string
         }
@@ -1416,9 +1598,11 @@ export type Database = {
           id?: string
           logo_url?: string | null
           name?: string
+          next_design_revision_seq?: number
           next_lead_quote_seq?: number
           next_lead_seq?: number
           next_project_seq?: number
+          next_snag_seq?: number
           quotation_prefix?: string
           updated_at?: string
         }
@@ -2677,6 +2861,69 @@ export type Database = {
           },
         ]
       }
+      snags: {
+        Row: {
+          assigned_to: string | null
+          created_at: string
+          fix_by: string | null
+          fixed_on: string | null
+          found_on: string
+          id: string
+          issue: string
+          item: string
+          organization_id: string
+          project_id: string
+          room_area: string | null
+          snag_code: string
+          updated_at: string
+        }
+        Insert: {
+          assigned_to?: string | null
+          created_at?: string
+          fix_by?: string | null
+          fixed_on?: string | null
+          found_on?: string
+          id?: string
+          issue: string
+          item: string
+          organization_id: string
+          project_id: string
+          room_area?: string | null
+          snag_code: string
+          updated_at?: string
+        }
+        Update: {
+          assigned_to?: string | null
+          created_at?: string
+          fix_by?: string | null
+          fixed_on?: string | null
+          found_on?: string
+          id?: string
+          issue?: string
+          item?: string
+          organization_id?: string
+          project_id?: string
+          room_area?: string | null
+          snag_code?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "snags_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "snags_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       suppliers: {
         Row: {
           address: string | null
@@ -2869,12 +3116,64 @@ export type Database = {
           },
         ]
       }
+      warranties: {
+        Row: {
+          created_at: string
+          handover_date: string
+          id: string
+          item: string
+          organization_id: string
+          project_id: string
+          updated_at: string
+          warranty_years: number
+        }
+        Insert: {
+          created_at?: string
+          handover_date?: string
+          id?: string
+          item: string
+          organization_id: string
+          project_id: string
+          updated_at?: string
+          warranty_years: number
+        }
+        Update: {
+          created_at?: string
+          handover_date?: string
+          id?: string
+          item?: string
+          organization_id?: string
+          project_id?: string
+          updated_at?: string
+          warranty_years?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "warranties_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "warranties_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
       accept_organization_invite: { Args: never; Returns: string }
+      allocate_design_revision_code: {
+        Args: { p_org_id: string }
+        Returns: string
+      }
       allocate_lead_code: { Args: { p_org_id: string }; Returns: string }
       allocate_lead_quote_number: {
         Args: { p_org_id: string }
@@ -2882,6 +3181,7 @@ export type Database = {
       }
       allocate_project_code: { Args: { p_org_id: string }; Returns: string }
       allocate_quotation_number: { Args: { p_org_id: string }; Returns: string }
+      allocate_snag_code: { Args: { p_org_id: string }; Returns: string }
       create_organization_with_owner: {
         Args: { org_name: string }
         Returns: string
@@ -2910,7 +3210,14 @@ export type Database = {
         | "electrical"
       ceiling_design: "cove" | "peripheral" | "none"
       ceiling_type: "gypsum" | "pop" | "grid" | "pvc" | "wooden" | "other"
+      client_approval_channel:
+        | "signed_drawing"
+        | "message"
+        | "email"
+        | "in_person"
+        | "other"
       design_fee_basis: "percent" | "per_sqft" | "fixed"
+      design_revision_reply_status: "waiting" | "approved" | "changes_requested"
       discount_type: "percent" | "fixed"
       electrical_point_type:
         | "light"
@@ -2940,6 +3247,7 @@ export type Database = {
         | "laminate"
         | "spc"
         | "no_work"
+      handover_check_result: "ok" | "needs_work"
       inspiration_category:
         | "living_room"
         | "bedroom"
@@ -3197,7 +3505,19 @@ export const Constants = {
       ],
       ceiling_design: ["cove", "peripheral", "none"],
       ceiling_type: ["gypsum", "pop", "grid", "pvc", "wooden", "other"],
+      client_approval_channel: [
+        "signed_drawing",
+        "message",
+        "email",
+        "in_person",
+        "other",
+      ],
       design_fee_basis: ["percent", "per_sqft", "fixed"],
+      design_revision_reply_status: [
+        "waiting",
+        "approved",
+        "changes_requested",
+      ],
       discount_type: ["percent", "fixed"],
       electrical_point_type: [
         "light",
@@ -3230,6 +3550,7 @@ export const Constants = {
         "spc",
         "no_work",
       ],
+      handover_check_result: ["ok", "needs_work"],
       inspiration_category: [
         "living_room",
         "bedroom",

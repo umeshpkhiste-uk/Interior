@@ -77,6 +77,23 @@ export async function listClientOptions(organizationId: string): Promise<ClientO
   return data ?? [];
 }
 
+export type ProjectOption = { id: string; projectCode: string; name: string; clientName: string };
+
+export async function listProjectOptions(organizationId: string): Promise<ProjectOption[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("projects")
+    .select("id, project_code, name, clients(name)")
+    .eq("organization_id", organizationId)
+    .is("archived_at", null)
+    .order("project_code", { ascending: true });
+  if (error) throw error;
+  return (data ?? []).map((row) => {
+    const { clients, ...rest } = row as typeof row & { clients: { name: string } | null };
+    return { id: rest.id, projectCode: rest.project_code, name: rest.name, clientName: clients?.name ?? "—" };
+  });
+}
+
 export type DesignerOption = { id: string; label: string };
 
 export async function listDesignerOptions(organizationId: string): Promise<DesignerOption[]> {
