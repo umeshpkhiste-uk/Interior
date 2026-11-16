@@ -1076,6 +1076,187 @@ export type Database = {
           },
         ]
       }
+      labour_advances: {
+        Row: {
+          advance_date: string
+          amount: number
+          created_at: string
+          id: string
+          organization_id: string
+          reason: string | null
+          updated_at: string
+          worker_id: string
+        }
+        Insert: {
+          advance_date?: string
+          amount: number
+          created_at?: string
+          id?: string
+          organization_id: string
+          reason?: string | null
+          updated_at?: string
+          worker_id: string
+        }
+        Update: {
+          advance_date?: string
+          amount?: number
+          created_at?: string
+          id?: string
+          organization_id?: string
+          reason?: string | null
+          updated_at?: string
+          worker_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "labour_advances_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "labour_advances_worker_id_fkey"
+            columns: ["worker_id"]
+            isOneToOne: false
+            referencedRelation: "workers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      labour_attendance: {
+        Row: {
+          attendance_date: string
+          created_at: string
+          day_pay: number
+          day_wage: number
+          hours_in_day: number
+          id: string
+          organization_id: string
+          overtime_hours: number
+          piece_pay: number
+          piece_work: string | null
+          pieces: number | null
+          project_id: string | null
+          rate_per_piece: number | null
+          status: Database["public"]["Enums"]["labour_attendance_status"]
+          total_pay: number
+          updated_at: string
+          worker_id: string
+        }
+        Insert: {
+          attendance_date?: string
+          created_at?: string
+          day_pay?: number
+          day_wage: number
+          hours_in_day?: number
+          id?: string
+          organization_id: string
+          overtime_hours?: number
+          piece_pay?: number
+          piece_work?: string | null
+          pieces?: number | null
+          project_id?: string | null
+          rate_per_piece?: number | null
+          status?: Database["public"]["Enums"]["labour_attendance_status"]
+          total_pay?: number
+          updated_at?: string
+          worker_id: string
+        }
+        Update: {
+          attendance_date?: string
+          created_at?: string
+          day_pay?: number
+          day_wage?: number
+          hours_in_day?: number
+          id?: string
+          organization_id?: string
+          overtime_hours?: number
+          piece_pay?: number
+          piece_work?: string | null
+          pieces?: number | null
+          project_id?: string | null
+          rate_per_piece?: number | null
+          status?: Database["public"]["Enums"]["labour_attendance_status"]
+          total_pay?: number
+          updated_at?: string
+          worker_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "labour_attendance_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "labour_attendance_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "labour_attendance_worker_id_fkey"
+            columns: ["worker_id"]
+            isOneToOne: false
+            referencedRelation: "workers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      labour_weekly_payments: {
+        Row: {
+          advance_recovered: number
+          created_at: string
+          id: string
+          mode: Database["public"]["Enums"]["vendor_payment_mode"]
+          organization_id: string
+          paid: number
+          updated_at: string
+          week_starting: string
+          worker_id: string
+        }
+        Insert: {
+          advance_recovered?: number
+          created_at?: string
+          id?: string
+          mode?: Database["public"]["Enums"]["vendor_payment_mode"]
+          organization_id: string
+          paid?: number
+          updated_at?: string
+          week_starting: string
+          worker_id: string
+        }
+        Update: {
+          advance_recovered?: number
+          created_at?: string
+          id?: string
+          mode?: Database["public"]["Enums"]["vendor_payment_mode"]
+          organization_id?: string
+          paid?: number
+          updated_at?: string
+          week_starting?: string
+          worker_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "labour_weekly_payments_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "labour_weekly_payments_worker_id_fkey"
+            columns: ["worker_id"]
+            isOneToOne: false
+            referencedRelation: "workers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       lead_followups: {
         Row: {
           channel: Database["public"]["Enums"]["lead_followup_channel"]
@@ -1637,6 +1818,7 @@ export type Database = {
           next_purchase_order_seq: number
           next_snag_seq: number
           next_vendor_seq: number
+          next_worker_seq: number
           quotation_prefix: string
           updated_at: string
         }
@@ -1658,6 +1840,7 @@ export type Database = {
           next_purchase_order_seq?: number
           next_snag_seq?: number
           next_vendor_seq?: number
+          next_worker_seq?: number
           quotation_prefix?: string
           updated_at?: string
         }
@@ -1679,6 +1862,7 @@ export type Database = {
           next_purchase_order_seq?: number
           next_snag_seq?: number
           next_vendor_seq?: number
+          next_worker_seq?: number
           quotation_prefix?: string
           updated_at?: string
         }
@@ -3487,6 +3671,53 @@ export type Database = {
           },
         ]
       }
+      workers: {
+        Row: {
+          created_at: string
+          daily_wage: number
+          id: string
+          name: string
+          organization_id: string
+          phone: string | null
+          team: string | null
+          trade: Database["public"]["Enums"]["labour_trade"]
+          updated_at: string
+          worker_code: string
+        }
+        Insert: {
+          created_at?: string
+          daily_wage: number
+          id?: string
+          name: string
+          organization_id: string
+          phone?: string | null
+          team?: string | null
+          trade?: Database["public"]["Enums"]["labour_trade"]
+          updated_at?: string
+          worker_code: string
+        }
+        Update: {
+          created_at?: string
+          daily_wage?: number
+          id?: string
+          name?: string
+          organization_id?: string
+          phone?: string | null
+          team?: string | null
+          trade?: Database["public"]["Enums"]["labour_trade"]
+          updated_at?: string
+          worker_code?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workers_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
@@ -3510,6 +3741,7 @@ export type Database = {
       allocate_quotation_number: { Args: { p_org_id: string }; Returns: string }
       allocate_snag_code: { Args: { p_org_id: string }; Returns: string }
       allocate_vendor_code: { Args: { p_org_id: string }; Returns: string }
+      allocate_worker_code: { Args: { p_org_id: string }; Returns: string }
       create_organization_with_owner: {
         Args: { org_name: string }
         Returns: string
@@ -3594,6 +3826,20 @@ export type Database = {
         | "u_shaped"
         | "parallel"
         | "island"
+      labour_attendance_status:
+        | "full_day"
+        | "half_day"
+        | "piece_work_only"
+        | "absent"
+      labour_trade:
+        | "carpenter"
+        | "helper"
+        | "painter"
+        | "electrician"
+        | "ceiling_worker"
+        | "polish_worker"
+        | "tile_mason"
+        | "other"
       lead_followup_channel:
         | "call"
         | "site_visit"
@@ -3900,6 +4146,22 @@ export const Constants = {
         "u_shaped",
         "parallel",
         "island",
+      ],
+      labour_attendance_status: [
+        "full_day",
+        "half_day",
+        "piece_work_only",
+        "absent",
+      ],
+      labour_trade: [
+        "carpenter",
+        "helper",
+        "painter",
+        "electrician",
+        "ceiling_worker",
+        "polish_worker",
+        "tile_mason",
+        "other",
       ],
       lead_followup_channel: [
         "call",
