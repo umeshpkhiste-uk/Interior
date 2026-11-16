@@ -10,6 +10,7 @@ import { getDesignApprovalKpis, getDesignApprovalDashboard } from "@/lib/data/de
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ModuleHeader } from "@/components/layout/module-header";
+import { MODULE_HEADER_IMAGES } from "@/components/layout/module-header-images";
 import { DesignApprovalKpiCards } from "@/components/design-approval/design-approval-kpi-cards";
 import { DesignRevisionFormDialog } from "@/components/design-approval/design-revision-form-dialog";
 import { DesignRevisionsTable } from "@/components/design-approval/design-revisions-table";
@@ -46,6 +47,7 @@ export default async function DesignApprovalPage() {
         title="Design Approval & Handover Kit"
         subtitle="Every drawing, every client sign-off, every snag, the handover walk and warranties"
         badges={["Revisions", "Approvals", "Snags", "Handover", "Warranty", "Sign-off"]}
+        image={MODULE_HEADER_IMAGES.livingRoom}
       />
 
       <DesignApprovalKpiCards kpis={kpis} />

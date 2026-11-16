@@ -9,6 +9,7 @@ import { getLabourPaymentKpis, getLabourPaymentDashboard } from "@/lib/data/labo
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ModuleHeader } from "@/components/layout/module-header";
+import { MODULE_HEADER_IMAGES } from "@/components/layout/module-header-images";
 import { LabourPaymentKpiCards } from "@/components/labour-payment/labour-payment-kpi-cards";
 import { WorkerFormDialog } from "@/components/labour-payment/worker-form-dialog";
 import { WorkersTable } from "@/components/labour-payment/workers-table";
@@ -43,6 +44,7 @@ export default async function LabourCarpenterPaymentPage() {
         title="Labour & Carpenter Payment Kit"
         subtitle="Every worker, every day on site, every piece of work, advance and weekly pay"
         badges={["Workers", "Attendance", "Piece Work", "Advances", "Weekly Pay", "Balance"]}
+        image={MODULE_HEADER_IMAGES.modularKitchen}
       />
 
       <LabourPaymentKpiCards kpis={kpis} />

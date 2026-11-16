@@ -9,6 +9,7 @@ import { getMaterialPurchaseKpis, getMaterialPurchaseDashboard } from "@/lib/dat
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ModuleHeader } from "@/components/layout/module-header";
+import { MODULE_HEADER_IMAGES } from "@/components/layout/module-header-images";
 import { MaterialPurchaseKpiCards } from "@/components/material-purchase/material-purchase-kpi-cards";
 import { VendorFormDialog } from "@/components/material-purchase/vendor-form-dialog";
 import { VendorsTable } from "@/components/material-purchase/vendors-table";
@@ -54,6 +55,7 @@ export default async function MaterialPurchasePage() {
         title="Material Purchase & Vendor Kit"
         subtitle="Every vendor, every order, every material sent to site and every payment"
         badges={["Vendors", "Purchase Orders", "Delivery", "Site Issue", "Payments", "Balance"]}
+        image={MODULE_HEADER_IMAGES.blueprintTools}
       />
 
       <MaterialPurchaseKpiCards kpis={kpis} />

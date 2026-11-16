@@ -1,9 +1,12 @@
+import { Users } from "lucide-react";
 import { requireCurrentUserContext } from "@/lib/data/organization";
 import { listClients } from "@/lib/data/clients";
 import { Card, CardContent } from "@/components/ui/card";
 import { ClientFormDialog } from "@/components/clients/client-form-dialog";
 import { ClientsTable } from "@/components/clients/clients-table";
 import { SearchBar } from "@/components/shared/search-bar";
+import { ModuleHeader } from "@/components/layout/module-header";
+import { MODULE_HEADER_IMAGES } from "@/components/layout/module-header-images";
 
 export default async function ClientsPage({
   searchParams,
@@ -19,13 +22,16 @@ export default async function ClientsPage({
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="flex flex-col gap-1">
-          <h1 className="font-heading text-2xl font-semibold tracking-tight">Clients</h1>
-          <p className="text-sm text-muted-foreground">
-            Manage client contacts and view their project history.
-          </p>
-        </div>
+      <ModuleHeader
+        icon={Users}
+        kitLabel="Core Toolkit • Clients"
+        title="Clients"
+        subtitle="Manage client contacts and view their project history."
+        badges={["Contacts", "Projects", "History"]}
+        image={MODULE_HEADER_IMAGES.livingRoom}
+      />
+
+      <div className="flex justify-end">
         <ClientFormDialog />
       </div>
 

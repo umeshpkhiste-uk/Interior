@@ -1,3 +1,4 @@
+import { Briefcase } from "lucide-react";
 import { requireCurrentUserContext } from "@/lib/data/organization";
 import { listClientOptions, listDesignerOptions, listProjects } from "@/lib/data/projects";
 import type { ProjectStatus } from "@/lib/data/projects";
@@ -6,6 +7,8 @@ import { ProjectFormDialog } from "@/components/projects/project-form-dialog";
 import { ProjectsTable } from "@/components/projects/projects-table";
 import { ProjectStatusFilter } from "@/components/projects/project-status-filter";
 import { SearchBar } from "@/components/shared/search-bar";
+import { ModuleHeader } from "@/components/layout/module-header";
+import { MODULE_HEADER_IMAGES } from "@/components/layout/module-header-images";
 
 export default async function ProjectsPage({
   searchParams,
@@ -27,13 +30,16 @@ export default async function ProjectsPage({
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="flex flex-col gap-1">
-          <h1 className="font-heading text-2xl font-semibold tracking-tight">Projects</h1>
-          <p className="text-sm text-muted-foreground">
-            Track every interior project from enquiry through completion.
-          </p>
-        </div>
+      <ModuleHeader
+        icon={Briefcase}
+        kitLabel="Core Toolkit • Projects"
+        title="Projects"
+        subtitle="Track every interior project from enquiry through completion."
+        badges={["Enquiry", "Design", "Execution", "Handover"]}
+        image={MODULE_HEADER_IMAGES.livingRoom}
+      />
+
+      <div className="flex justify-end">
         <ProjectFormDialog clients={clients} designers={designers} />
       </div>
 

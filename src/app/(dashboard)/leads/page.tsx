@@ -6,6 +6,7 @@ import { listLeadQuotations } from "@/lib/data/lead-quotations";
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ModuleHeader } from "@/components/layout/module-header";
+import { MODULE_HEADER_IMAGES } from "@/components/layout/module-header-images";
 import { LeadKpiCards } from "@/components/leads/lead-kpi-cards";
 import { LeadFormDialog } from "@/components/leads/lead-form-dialog";
 import { LeadsTable } from "@/components/leads/leads-table";
@@ -36,6 +37,7 @@ export default async function LeadsPage() {
         title="Client Lead CRM Kit"
         subtitle="Every enquiry, every follow-up and every quotation, from first call to won project"
         badges={["Leads", "Sources", "Follow-ups", "Quotations", "Won", "Pipeline"]}
+        image={MODULE_HEADER_IMAGES.livingRoom}
       />
 
       <LeadKpiCards kpis={kpis} />

@@ -6,6 +6,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { QuotationStatusBadge } from "@/components/quotations/quotation-status-badge";
 import { formatINR } from "@/lib/calculations/shared";
+import { ModuleHeader } from "@/components/layout/module-header";
+import { MODULE_HEADER_IMAGES } from "@/components/layout/module-header-images";
 
 export default async function QuotationsPage() {
   const ctx = await requireCurrentUserContext();
@@ -13,10 +15,14 @@ export default async function QuotationsPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-col gap-1">
-        <h1 className="font-heading text-2xl font-semibold tracking-tight">Quotations</h1>
-        <p className="text-sm text-muted-foreground">Every quotation across all projects. Create new ones from a project&apos;s Quotations tab.</p>
-      </div>
+      <ModuleHeader
+        icon={FileText}
+        kitLabel="Core Toolkit • Quotations"
+        title="Quotations"
+        subtitle="Every quotation across all projects. Create new ones from a project's Quotations tab."
+        badges={["Draft", "Sent", "Approved", "Grand Total"]}
+        image={MODULE_HEADER_IMAGES.livingRoom}
+      />
 
       {quotations.length === 0 ? (
         <Card>

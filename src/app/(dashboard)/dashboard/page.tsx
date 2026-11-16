@@ -1,3 +1,4 @@
+import { LayoutDashboard } from "lucide-react";
 import { requireCurrentUserContext } from "@/lib/data/organization";
 import {
   getDashboardSummary,
@@ -8,6 +9,8 @@ import {
   getRecentProjects,
 } from "@/lib/data/dashboard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ModuleHeader } from "@/components/layout/module-header";
+import { MODULE_HEADER_IMAGES } from "@/components/layout/module-header-images";
 import { SummaryCards } from "@/components/dashboard/summary-cards";
 import { RecentProjectsTable } from "@/components/dashboard/recent-projects-table";
 import { QuickActions } from "@/components/dashboard/quick-actions";
@@ -35,12 +38,14 @@ export default async function DashboardPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-col gap-1">
-        <h1 className="font-heading text-2xl font-semibold tracking-tight">Dashboard</h1>
-        <p className="text-sm text-muted-foreground">
-          Welcome back{ctx.fullName ? `, ${ctx.fullName}` : ""} — here&apos;s how {ctx.organizationName} is doing.
-        </p>
-      </div>
+      <ModuleHeader
+        icon={LayoutDashboard}
+        kitLabel="Core Toolkit • Dashboard"
+        title="Dashboard"
+        subtitle={`Welcome back${ctx.fullName ? `, ${ctx.fullName}` : ""} — here's how ${ctx.organizationName} is doing.`}
+        badges={["Overview", "Revenue", "Costs", "Profitability"]}
+        image={MODULE_HEADER_IMAGES.livingRoom}
+      />
 
       <QuickActions />
 

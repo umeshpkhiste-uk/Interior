@@ -1,6 +1,9 @@
+import { Boxes } from "lucide-react";
 import { requireCurrentUserContext } from "@/lib/data/organization";
 import { listMaterialCategories, listMaterials, listSuppliers } from "@/lib/data/materials";
 import { Card, CardContent } from "@/components/ui/card";
+import { ModuleHeader } from "@/components/layout/module-header";
+import { MODULE_HEADER_IMAGES } from "@/components/layout/module-header-images";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { SearchBar } from "@/components/shared/search-bar";
@@ -24,12 +27,14 @@ export default async function MaterialsPage({
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-col gap-1">
-        <h1 className="font-heading text-2xl font-semibold tracking-tight">Material Library</h1>
-        <p className="text-sm text-muted-foreground">
-          Materials, categories, and suppliers shared across every project and estimator.
-        </p>
-      </div>
+      <ModuleHeader
+        icon={Boxes}
+        kitLabel="Core Toolkit • Material Library"
+        title="Material Library"
+        subtitle="Materials, categories, and suppliers shared across every project and estimator."
+        badges={["Materials", "Categories", "Suppliers"]}
+        image={MODULE_HEADER_IMAGES.livingRoom}
+      />
 
       <Tabs defaultValue="materials">
         <TabsList>

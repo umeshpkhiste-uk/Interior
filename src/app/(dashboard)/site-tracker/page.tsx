@@ -11,6 +11,7 @@ import {
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ModuleHeader } from "@/components/layout/module-header";
+import { MODULE_HEADER_IMAGES } from "@/components/layout/module-header-images";
 import { SiteTrackerKpiCards } from "@/components/site-tracker/site-tracker-kpi-cards";
 import { ProjectProgressTable } from "@/components/site-tracker/project-progress-table";
 import { StageTaskFormDialog } from "@/components/site-tracker/stage-task-form-dialog";
@@ -40,6 +41,7 @@ export default async function SiteTrackerPage() {
         title="Project & Site Tracker Kit"
         subtitle="Every project, every stage task and every site visit, in one place"
         badges={["Projects", "Stages", "Tasks", "Site Visits", "Handover", "Progress"]}
+        image={MODULE_HEADER_IMAGES.blueprintTools}
       />
 
       <SiteTrackerKpiCards kpis={kpis} />

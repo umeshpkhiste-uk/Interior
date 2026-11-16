@@ -4,6 +4,8 @@ import { requireCurrentUserContext } from "@/lib/data/organization";
 import { listProjects } from "@/lib/data/projects";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { ModuleHeader } from "@/components/layout/module-header";
+import { MODULE_HEADER_IMAGES } from "@/components/layout/module-header-images";
 
 export default async function ReportsPage() {
   const ctx = await requireCurrentUserContext();
@@ -11,13 +13,14 @@ export default async function ReportsPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-col gap-1">
-        <h1 className="font-heading text-2xl font-semibold tracking-tight">Reports</h1>
-        <p className="text-sm text-muted-foreground">
-          Downloadable PDF and Excel reports. Pick a project for its cost, BOQ, profitability, quotation, and
-          expense reports.
-        </p>
-      </div>
+      <ModuleHeader
+        icon={BarChart3}
+        kitLabel="Preferences • Reports"
+        title="Reports"
+        subtitle="Downloadable PDF and Excel reports. Pick a project for its cost, BOQ, profitability, quotation, and expense reports."
+        badges={["PDF", "Excel", "Per-project"]}
+        image={MODULE_HEADER_IMAGES.livingRoom}
+      />
 
       <Card>
         <CardHeader>

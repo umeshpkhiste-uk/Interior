@@ -8,6 +8,7 @@ import { listProjectsBilling, getProfitBillingKpis, getProfitBillingDashboard } 
 import { Card, CardContent } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ModuleHeader } from "@/components/layout/module-header";
+import { MODULE_HEADER_IMAGES } from "@/components/layout/module-header-images";
 import { ProfitBillingKpiCards } from "@/components/profit-billing/profit-billing-kpi-cards";
 import { ProjectsBillingTable } from "@/components/profit-billing/projects-billing-table";
 import { InvoiceFormDialog } from "@/components/profit-billing/invoice-form-dialog";
@@ -41,6 +42,7 @@ export default async function ProjectProfitBillingPage() {
         title="Project Profit & Billing Kit"
         subtitle="Every invoice, every rupee received, every cost and the real profit of each project"
         badges={["Projects", "Invoices", "Receipts", "Costs", "Outstanding", "Profit"]}
+        image={MODULE_HEADER_IMAGES.livingRoom}
       />
 
       <ProfitBillingKpiCards kpis={kpis} />

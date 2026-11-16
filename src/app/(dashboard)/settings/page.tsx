@@ -1,9 +1,12 @@
+import { Settings } from "lucide-react";
 import { getOrganizationProfile, requireCurrentUserContext } from "@/lib/data/organization";
 import { listOrganizationMembers } from "@/lib/data/members";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { StudioProfileForm } from "@/components/settings/studio-profile-form";
 import { TeamMembersTable } from "@/components/settings/team-members-table";
 import { InviteMemberDialog } from "@/components/settings/invite-member-dialog";
+import { ModuleHeader } from "@/components/layout/module-header";
+import { MODULE_HEADER_IMAGES } from "@/components/layout/module-header-images";
 
 export default async function SettingsPage() {
   const ctx = await requireCurrentUserContext();
@@ -15,12 +18,14 @@ export default async function SettingsPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-col gap-1">
-        <h1 className="font-heading text-2xl font-semibold tracking-tight">Settings</h1>
-        <p className="text-sm text-muted-foreground">
-          Studio profile, team members, and default billing rates.
-        </p>
-      </div>
+      <ModuleHeader
+        icon={Settings}
+        kitLabel="Preferences • Settings"
+        title="Settings"
+        subtitle="Studio profile, team members, and default billing rates."
+        badges={["Profile", "Team", "Billing"]}
+        image={MODULE_HEADER_IMAGES.livingRoom}
+      />
 
       <StudioProfileForm organization={organization} canEdit={isOwner} />
 

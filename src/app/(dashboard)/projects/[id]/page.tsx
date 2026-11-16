@@ -77,7 +77,7 @@ export default async function ProjectDetailPage({
       </div>
 
       <Tabs defaultValue="overview">
-        <TabsList>
+        <TabsList variant="line" className="w-full justify-start gap-5 border-b">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="rooms">Room Measurements</TabsTrigger>
           <TabsTrigger value="estimators">Estimators</TabsTrigger>
