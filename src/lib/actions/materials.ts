@@ -60,21 +60,54 @@ export async function setMaterialArchived(materialId: string, archived: boolean)
   return { error: null, data: undefined };
 }
 
-export async function createSupplier(input: SupplierInput): Promise<ActionResult> {
+function toSupplierRow(input: SupplierInput) {
+  return {
+    name: input.name,
+    category: input.category || null,
+    credit_days: input.creditDays ?? 0,
+    contact_phone: input.contactPhone || null,
+    contact_email: input.contactEmail || null,
+    address: input.address || null,
+    notes: input.notes || null,
+  };
+}
+
+export async function createSupplier(input: SupplierInput): Promise<ActionResult<{ id: string }>> {
   const parsed = supplierSchema.safeParse(input);
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
 
   const ctx = await requireCurrentUserContext();
   const supabase = await createClient();
-  const { error } = await supabase.from("suppliers").insert({
-    organization_id: ctx.organizationId,
-    name: parsed.data.name,
-    contact_phone: parsed.data.contactPhone || null,
-    contact_email: parsed.data.contactEmail || null,
-    address: parsed.data.address || null,
-    notes: parsed.data.notes || null,
+
+  const { data: vendorCode, error: codeError } = await supabase.rpc("allocate_vendor_code", {
+    p_org_id: ctx.organizationId,
   });
+  if (codeError) return { error: codeError.message };
+
+  const { data, error } = await supabase
+    .from("suppliers")
+    .insert({ organization_id: ctx.organizationId, vendor_code: vendorCode, ...toSupplierRow(parsed.data) })
+    .select("id")
+    .single();
   if (error) return { error: error.message };
   revalidatePath("/materials");
+  revalidatePath("/material-purchase");
+  return { error: null, data: { id: data.id } };
+}
+
+export async function updateSupplier(supplierId: string, input: SupplierInput): Promise<ActionResult> {
+  const parsed = supplierSchema.safeParse(input);
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
+
+  const ctx = await requireCurrentUserContext();
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("suppliers")
+    .update(toSupplierRow(parsed.data))
+    .eq("id", supplierId)
+    .eq("organization_id", ctx.organizationId);
+  if (error) return { error: error.message };
+  revalidatePath("/materials");
+  revalidatePath("/material-purchase");
   return { error: null, data: undefined };
 }

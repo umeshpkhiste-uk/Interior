@@ -1297,6 +1297,76 @@ export type Database = {
           },
         ]
       }
+      material_issues: {
+        Row: {
+          created_at: string
+          id: string
+          issue_date: string
+          issued_to: string | null
+          item: string
+          organization_id: string
+          project_id: string
+          purchase_order_id: string | null
+          qty: number
+          rate: number
+          unit: string
+          updated_at: string
+          value: number
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          issue_date?: string
+          issued_to?: string | null
+          item: string
+          organization_id: string
+          project_id: string
+          purchase_order_id?: string | null
+          qty: number
+          rate: number
+          unit: string
+          updated_at?: string
+          value?: number
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          issue_date?: string
+          issued_to?: string | null
+          item?: string
+          organization_id?: string
+          project_id?: string
+          purchase_order_id?: string | null
+          qty?: number
+          rate?: number
+          unit?: string
+          updated_at?: string
+          value?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "material_issues_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "material_issues_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "material_issues_purchase_order_id_fkey"
+            columns: ["purchase_order_id"]
+            isOneToOne: false
+            referencedRelation: "purchase_orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       material_rates: {
         Row: {
           created_at: string
@@ -1564,7 +1634,9 @@ export type Database = {
           next_lead_quote_seq: number
           next_lead_seq: number
           next_project_seq: number
+          next_purchase_order_seq: number
           next_snag_seq: number
+          next_vendor_seq: number
           quotation_prefix: string
           updated_at: string
         }
@@ -1583,7 +1655,9 @@ export type Database = {
           next_lead_quote_seq?: number
           next_lead_seq?: number
           next_project_seq?: number
+          next_purchase_order_seq?: number
           next_snag_seq?: number
+          next_vendor_seq?: number
           quotation_prefix?: string
           updated_at?: string
         }
@@ -1602,7 +1676,9 @@ export type Database = {
           next_lead_quote_seq?: number
           next_lead_seq?: number
           next_project_seq?: number
+          next_purchase_order_seq?: number
           next_snag_seq?: number
+          next_vendor_seq?: number
           quotation_prefix?: string
           updated_at?: string
         }
@@ -2421,6 +2497,82 @@ export type Database = {
           },
         ]
       }
+      purchase_orders: {
+        Row: {
+          amount: number
+          created_at: string
+          delivery_status: Database["public"]["Enums"]["purchase_delivery_status"]
+          gst_pct: number
+          id: string
+          item: string
+          order_date: string
+          organization_id: string
+          po_number: string
+          project_id: string | null
+          qty: number
+          rate: number
+          unit: string
+          updated_at: string
+          vendor_id: string
+        }
+        Insert: {
+          amount?: number
+          created_at?: string
+          delivery_status?: Database["public"]["Enums"]["purchase_delivery_status"]
+          gst_pct?: number
+          id?: string
+          item: string
+          order_date?: string
+          organization_id: string
+          po_number: string
+          project_id?: string | null
+          qty: number
+          rate: number
+          unit: string
+          updated_at?: string
+          vendor_id: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          delivery_status?: Database["public"]["Enums"]["purchase_delivery_status"]
+          gst_pct?: number
+          id?: string
+          item?: string
+          order_date?: string
+          organization_id?: string
+          po_number?: string
+          project_id?: string | null
+          qty?: number
+          rate?: number
+          unit?: string
+          updated_at?: string
+          vendor_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "purchase_orders_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "purchase_orders_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "purchase_orders_vendor_id_fkey"
+            columns: ["vendor_id"]
+            isOneToOne: false
+            referencedRelation: "suppliers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       quotation_items: {
         Row: {
           amount: number
@@ -3038,36 +3190,45 @@ export type Database = {
       suppliers: {
         Row: {
           address: string | null
+          category: string | null
           contact_email: string | null
           contact_phone: string | null
           created_at: string
+          credit_days: number
           id: string
           name: string
           notes: string | null
           organization_id: string
           updated_at: string
+          vendor_code: string | null
         }
         Insert: {
           address?: string | null
+          category?: string | null
           contact_email?: string | null
           contact_phone?: string | null
           created_at?: string
+          credit_days?: number
           id?: string
           name: string
           notes?: string | null
           organization_id: string
           updated_at?: string
+          vendor_code?: string | null
         }
         Update: {
           address?: string | null
+          category?: string | null
           contact_email?: string | null
           contact_phone?: string | null
           created_at?: string
+          credit_days?: number
           id?: string
           name?: string
           notes?: string | null
           organization_id?: string
           updated_at?: string
+          vendor_code?: string | null
         }
         Relationships: [
           {
@@ -3075,6 +3236,57 @@ export type Database = {
             columns: ["organization_id"]
             isOneToOne: false
             referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      vendor_payments: {
+        Row: {
+          amount: number
+          created_at: string
+          id: string
+          mode: Database["public"]["Enums"]["vendor_payment_mode"]
+          organization_id: string
+          payment_date: string
+          reference: string | null
+          updated_at: string
+          vendor_id: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          id?: string
+          mode?: Database["public"]["Enums"]["vendor_payment_mode"]
+          organization_id: string
+          payment_date?: string
+          reference?: string | null
+          updated_at?: string
+          vendor_id: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          id?: string
+          mode?: Database["public"]["Enums"]["vendor_payment_mode"]
+          organization_id?: string
+          payment_date?: string
+          reference?: string | null
+          updated_at?: string
+          vendor_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "vendor_payments_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "vendor_payments_vendor_id_fkey"
+            columns: ["vendor_id"]
+            isOneToOne: false
+            referencedRelation: "suppliers"
             referencedColumns: ["id"]
           },
         ]
@@ -3291,8 +3503,13 @@ export type Database = {
         Returns: string
       }
       allocate_project_code: { Args: { p_org_id: string }; Returns: string }
+      allocate_purchase_order_number: {
+        Args: { p_org_id: string }
+        Returns: string
+      }
       allocate_quotation_number: { Args: { p_org_id: string }; Returns: string }
       allocate_snag_code: { Args: { p_org_id: string }; Returns: string }
+      allocate_vendor_code: { Args: { p_org_id: string }; Returns: string }
       create_organization_with_owner: {
         Args: { org_name: string }
         Returns: string
@@ -3447,6 +3664,7 @@ export type Database = {
         | "independent_house"
         | "office"
         | "commercial"
+      purchase_delivery_status: "pending" | "delivered"
       quotation_status:
         | "draft"
         | "sent"
@@ -3468,6 +3686,7 @@ export type Database = {
         | "other"
       shutter_type: "hinged" | "sliding" | "open"
       unit_system: "feet_inches" | "metric"
+      vendor_payment_mode: "cash" | "upi" | "bank_transfer" | "cheque" | "other"
       wardrobe_component_type:
         | "drawer"
         | "hanging_rod"
@@ -3761,6 +3980,7 @@ export const Constants = {
         "office",
         "commercial",
       ],
+      purchase_delivery_status: ["pending", "delivered"],
       quotation_status: [
         "draft",
         "sent",
@@ -3784,6 +4004,7 @@ export const Constants = {
       ],
       shutter_type: ["hinged", "sliding", "open"],
       unit_system: ["feet_inches", "metric"],
+      vendor_payment_mode: ["cash", "upi", "bank_transfer", "cheque", "other"],
       wardrobe_component_type: [
         "drawer",
         "hanging_rod",
