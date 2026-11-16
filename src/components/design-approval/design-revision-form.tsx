@@ -20,7 +20,7 @@ import {
   designRevisionSchema,
   type DesignRevisionInput,
 } from "@/lib/validations/design-revision";
-import { ProjectSelectField } from "./project-select-field";
+import { ProjectSelectField } from "@/components/shared/project-select-field";
 import type { ProjectOption } from "@/lib/data/projects";
 
 export function DesignRevisionForm({

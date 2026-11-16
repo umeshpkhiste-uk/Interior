@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Field } from "@/components/shared/field";
 import { DialogFooter } from "@/components/ui/dialog";
 import { warrantySchema, type WarrantyInput } from "@/lib/validations/warranty";
-import { ProjectSelectField } from "./project-select-field";
+import { ProjectSelectField } from "@/components/shared/project-select-field";
 import type { ProjectOption } from "@/lib/data/projects";
 
 export function WarrantyForm({

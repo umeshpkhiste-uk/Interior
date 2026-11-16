@@ -20,7 +20,7 @@ import {
   clientApprovalSchema,
   type ClientApprovalInput,
 } from "@/lib/validations/client-approval";
-import { ProjectSelectField } from "./project-select-field";
+import { ProjectSelectField } from "@/components/shared/project-select-field";
 import type { ProjectOption } from "@/lib/data/projects";
 
 export function ClientApprovalForm({

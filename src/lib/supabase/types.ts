@@ -2861,6 +2861,63 @@ export type Database = {
           },
         ]
       }
+      site_visits: {
+        Row: {
+          created_at: string
+          id: string
+          next_visit_in_days: number | null
+          notes: string | null
+          organization_id: string
+          project_id: string
+          purpose: string | null
+          updated_at: string
+          visit_date: string
+          visited_by: string | null
+          work_done_pct: number | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          next_visit_in_days?: number | null
+          notes?: string | null
+          organization_id: string
+          project_id: string
+          purpose?: string | null
+          updated_at?: string
+          visit_date?: string
+          visited_by?: string | null
+          work_done_pct?: number | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          next_visit_in_days?: number | null
+          notes?: string | null
+          organization_id?: string
+          project_id?: string
+          purpose?: string | null
+          updated_at?: string
+          visit_date?: string
+          visited_by?: string | null
+          work_done_pct?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "site_visits_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "site_visits_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       snags: {
         Row: {
           assigned_to: string | null
@@ -2917,6 +2974,60 @@ export type Database = {
           },
           {
             foreignKeyName: "snags_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      stage_tasks: {
+        Row: {
+          created_at: string
+          done_by: string | null
+          done_on: string | null
+          id: string
+          organization_id: string
+          planned_date: string | null
+          project_id: string
+          stage: string
+          task: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          done_by?: string | null
+          done_on?: string | null
+          id?: string
+          organization_id: string
+          planned_date?: string | null
+          project_id: string
+          stage: string
+          task: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          done_by?: string | null
+          done_on?: string | null
+          id?: string
+          organization_id?: string
+          planned_date?: string | null
+          project_id?: string
+          stage?: string
+          task?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "stage_tasks_organization_id_fkey"
+            columns: ["organization_id"]
+            isOneToOne: false
+            referencedRelation: "organizations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "stage_tasks_project_id_fkey"
             columns: ["project_id"]
             isOneToOne: false
             referencedRelation: "projects"

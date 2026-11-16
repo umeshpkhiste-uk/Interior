@@ -20,7 +20,7 @@ import {
   handoverCheckSchema,
   type HandoverCheckInput,
 } from "@/lib/validations/handover-check";
-import { ProjectSelectField } from "./project-select-field";
+import { ProjectSelectField } from "@/components/shared/project-select-field";
 import type { ProjectOption } from "@/lib/data/projects";
 
 export function HandoverCheckForm({
