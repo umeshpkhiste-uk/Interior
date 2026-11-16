@@ -25,7 +25,7 @@ export function Sidebar({
   fullName: string | null;
   email: string;
 }) {
-  const [collapsed, setCollapsed] = useState(true);
+  const [collapsed, setCollapsed] = useState(false);
   const pathname = usePathname();
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(
