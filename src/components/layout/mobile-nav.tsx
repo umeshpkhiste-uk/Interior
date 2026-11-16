@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Menu, LogOut } from "lucide-react";
+import { Menu, LogOut, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -12,7 +12,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { NAV_ITEMS } from "./nav-config";
+import { NAV_GROUPS } from "./nav-config";
 import { GlobalSearch } from "./global-search";
 import { ThemeToggle } from "./theme-toggle";
 import { initials } from "./user-menu";
@@ -30,6 +30,16 @@ export function MobileNav({
 }) {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries(
+      NAV_GROUPS.filter((g) => g.items).map((g) => [
+        g.label,
+        g.items!.some(
+          (item) => pathname === item.href || pathname.startsWith(`${item.href}/`)
+        ) || g === NAV_GROUPS[0],
+      ])
+    )
+  );
 
   return (
     <Sheet open={open} onOpenChange={setOpen}>
@@ -47,24 +57,87 @@ export function MobileNav({
             Menu
           </p>
           <ul className="flex flex-col gap-0.5">
-            {NAV_ITEMS.map((item) => {
-              const isActive =
-                pathname === item.href || pathname.startsWith(`${item.href}/`);
+            {NAV_GROUPS.map((group) => {
+              if (!group.items) {
+                const isActive =
+                  pathname === group.href || pathname.startsWith(`${group.href}/`);
+                return (
+                  <li key={group.label}>
+                    <Link
+                      href={group.href!}
+                      onClick={() => setOpen(false)}
+                      className={cn(
+                        "relative flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition-colors",
+                        isActive
+                          ? "bg-accent text-accent-foreground after:absolute after:inset-y-1.5 after:-left-2 after:w-1 after:rounded-r-full after:bg-primary"
+                          : "text-foreground/60 hover:bg-accent/50 hover:text-foreground"
+                      )}
+                    >
+                      <group.icon className="size-4 shrink-0" />
+                      <span className="truncate">{group.label}</span>
+                    </Link>
+                  </li>
+                );
+              }
+
+              const isOpen = openGroups[group.label] ?? false;
+              const groupActive = group.items.some(
+                (item) =>
+                  pathname === item.href || pathname.startsWith(`${item.href}/`)
+              );
+
               return (
-                <li key={item.href}>
-                  <Link
-                    href={item.href}
-                    onClick={() => setOpen(false)}
+                <li key={group.label}>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setOpenGroups((prev) => ({
+                        ...prev,
+                        [group.label]: !prev[group.label],
+                      }))
+                    }
                     className={cn(
-                      "relative flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition-colors",
-                      isActive
-                        ? "bg-accent text-accent-foreground after:absolute after:inset-y-1.5 after:-left-2 after:w-1 after:rounded-r-full after:bg-primary"
-                        : "text-foreground/60 hover:bg-accent/50 hover:text-foreground"
+                      "flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition-colors",
+                      groupActive
+                        ? "text-foreground"
+                        : "text-foreground/60 hover:text-foreground"
                     )}
                   >
-                    <item.icon className="size-4 shrink-0" />
-                    <span className="truncate">{item.label}</span>
-                  </Link>
+                    <group.icon className="size-4 shrink-0" />
+                    <span className="flex-1 truncate text-left">{group.label}</span>
+                    <ChevronDown
+                      className={cn(
+                        "size-3.5 shrink-0 transition-transform",
+                        isOpen && "rotate-180"
+                      )}
+                    />
+                  </button>
+                  {isOpen && (
+                    <ul className="mt-0.5 flex flex-col gap-0.5 border-l pl-3">
+                      {group.items.map((item) => {
+                        const isActive =
+                          pathname === item.href ||
+                          pathname.startsWith(`${item.href}/`);
+                        return (
+                          <li key={item.href}>
+                            <Link
+                              href={item.href}
+                              onClick={() => setOpen(false)}
+                              className={cn(
+                                "relative flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition-colors",
+                                isActive
+                                  ? "bg-accent text-accent-foreground after:absolute after:inset-y-1.5 after:-left-2 after:w-1 after:rounded-r-full after:bg-primary"
+                                  : "text-foreground/60 hover:bg-accent/50 hover:text-foreground"
+                              )}
+                            >
+                              <item.icon className="size-4 shrink-0" />
+                              <span className="truncate">{item.label}</span>
+                            </Link>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
                 </li>
               );
             })}
