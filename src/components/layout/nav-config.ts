@@ -3,14 +3,8 @@ import {
   LayoutDashboard,
   Briefcase,
   Users,
-  Ruler,
-  Calculator,
   Boxes,
-  ClipboardList,
   FileText,
-  Percent,
-  Layers,
-  TrendingUp,
   Tags,
   BarChart3,
   Settings,
@@ -38,8 +32,11 @@ export type NavGroup = {
 };
 
 /**
- * The 14 original items, now nested under a single "Interior-Design-Business-Toolkit"
- * parent menu, followed by the newly added top-level business-kit menus.
+ * Items whose standalone page was just a "pick a project" list into the same
+ * tab shown on the project detail page (Room Measurements, Interior Estimators,
+ * BOQ Management, Design Fees, Package Comparison, Cost & Profit Analysis) were
+ * dropped from this menu — they duplicated the project page's own tabs. Reach
+ * those from Projects → open a project → its tabs instead.
  */
 export const NAV_GROUPS: NavGroup[] = [
   {
@@ -49,14 +46,8 @@ export const NAV_GROUPS: NavGroup[] = [
       { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
       { label: "Projects", href: "/projects", icon: Briefcase },
       { label: "Clients", href: "/clients", icon: Users },
-      { label: "Room Measurements", href: "/rooms", icon: Ruler },
-      { label: "Interior Estimators", href: "/estimators", icon: Calculator },
       { label: "Material Library", href: "/materials", icon: Boxes },
-      { label: "BOQ Management", href: "/boq", icon: ClipboardList },
       { label: "Quotations", href: "/quotations", icon: FileText },
-      { label: "Design Fees", href: "/design-fees", icon: Percent },
-      { label: "Package Comparison", href: "/packages", icon: Layers },
-      { label: "Cost & Profit Analysis", href: "/cost-profit", icon: TrendingUp },
       { label: "Rate Management", href: "/rates", icon: Tags },
       { label: "Reports", href: "/reports", icon: BarChart3 },
       { label: "Settings", href: "/settings", icon: Settings },
