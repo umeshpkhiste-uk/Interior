@@ -36,7 +36,7 @@ export function MobileNav({
         g.label,
         g.items!.some(
           (item) => pathname === item.href || pathname.startsWith(`${item.href}/`)
-        ) || g === NAV_GROUPS[0],
+        ),
       ])
     )
   );

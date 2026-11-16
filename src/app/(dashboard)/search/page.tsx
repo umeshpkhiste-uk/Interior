@@ -80,7 +80,7 @@ export default async function SearchPage({
                 {clients.map((c) => (
                   <Link
                     key={c.id}
-                    href="/clients"
+                    href="/projects"
                     className="rounded-md border px-3 py-2 text-sm hover:bg-accent"
                   >
                     {c.name}

@@ -6,7 +6,6 @@ import { usePathname } from "next/navigation";
 import { ChevronLeft, ChevronRight, ChevronDown, Building2, LogOut } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { NAV_GROUPS } from "./nav-config";
-import { GlobalSearch } from "./global-search";
 import { ThemeToggle } from "./theme-toggle";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { initials } from "./user-menu";
@@ -26,7 +25,7 @@ export function Sidebar({
   fullName: string | null;
   email: string;
 }) {
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(true);
   const pathname = usePathname();
   const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(
@@ -34,7 +33,7 @@ export function Sidebar({
         g.label,
         g.items!.some(
           (item) => pathname === item.href || pathname.startsWith(`${item.href}/`)
-        ) || g === NAV_GROUPS[0],
+        ),
       ])
     )
   );
@@ -71,12 +70,6 @@ export function Sidebar({
           )}
         </button>
       </div>
-
-      {!collapsed && (
-        <div className="px-3 pt-3">
-          <GlobalSearch />
-        </div>
-      )}
 
       <nav className="flex-1 overflow-y-auto px-2 py-3">
         {!collapsed && (

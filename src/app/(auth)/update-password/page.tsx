@@ -34,7 +34,7 @@ export default function UpdatePasswordPage() {
     }
     // Hard navigation, not router.push — see the comment on signIn() in lib/actions/auth.ts.
     // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- intentional hard navigation, see comment above
-    window.location.assign("/dashboard");
+    window.location.assign("/projects");
   }
 
   return (

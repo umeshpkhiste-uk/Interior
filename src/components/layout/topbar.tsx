@@ -2,6 +2,7 @@ import { NotificationsMenu } from "./notifications-menu";
 import { UserMenu } from "./user-menu";
 import { ProjectSelector, type ProjectOption } from "./project-selector";
 import { MobileNav } from "./mobile-nav";
+import { GlobalSearch } from "./global-search";
 
 export function Topbar({
   fullName,
@@ -20,6 +21,9 @@ export function Topbar({
     <header className="sticky top-0 z-40 flex h-14 items-center gap-3 border-b bg-background/95 px-4 backdrop-blur supports-backdrop-filter:bg-background/80 md:px-6">
       <MobileNav organizationName={organizationName} fullName={fullName} email={email} />
       <ProjectSelector projects={projects} />
+      <div className="min-w-0 flex-1">
+        <GlobalSearch />
+      </div>
       <div className="ml-auto flex items-center gap-1">
         <NotificationsMenu />
         <UserMenu fullName={fullName} email={email} role={role} />
