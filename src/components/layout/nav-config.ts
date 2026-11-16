@@ -49,7 +49,6 @@ export const NAV_GROUPS: NavGroup[] = [
       { label: "Material Library", href: "/materials", icon: Boxes },
       { label: "Quotations", href: "/quotations", icon: FileText },
       { label: "Rate Management", href: "/rates", icon: Tags },
-      { label: "Reports", href: "/reports", icon: BarChart3 },
     ],
   },
   { label: "Leads", href: "/leads", icon: UserPlus },
@@ -58,5 +57,12 @@ export const NAV_GROUPS: NavGroup[] = [
   { label: "Material Purchase", href: "/material-purchase", icon: Truck },
   { label: "Labour Payment", href: "/labour-payment", icon: HardHat },
   { label: "Profit & Billing", href: "/profit-billing", icon: Receipt },
-  { label: "Preferences", href: "/settings", icon: Settings },
+  {
+    label: "Preferences",
+    icon: Settings,
+    items: [
+      { label: "Settings", href: "/settings", icon: Settings },
+      { label: "Reports", href: "/reports", icon: BarChart3 },
+    ],
+  },
 ];
