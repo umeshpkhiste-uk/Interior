@@ -15,9 +15,17 @@ import { RoomFormDialog } from "./room-form-dialog";
 import { deleteRoom } from "@/lib/actions/rooms";
 import type { RoomRow } from "@/lib/data/rooms";
 
-export function RoomCardActions({ room, projectId }: { room: RoomRow; projectId: string }) {
+export function RoomCardActions({
+  room,
+  projectId,
+  defaultEditOpen = false,
+}: {
+  room: RoomRow;
+  projectId: string;
+  defaultEditOpen?: boolean;
+}) {
   const router = useRouter();
-  const [editOpen, setEditOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(defaultEditOpen);
 
   async function handleDelete() {
     if (!window.confirm(`Delete "${room.room_name}"? This also removes its openings.`)) return;

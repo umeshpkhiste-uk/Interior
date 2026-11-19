@@ -15,6 +15,9 @@ import {
   Truck,
   HardHat,
   Receipt,
+  LayoutTemplate,
+  Square,
+  Box,
 } from "lucide-react";
 
 export type NavItem = {
@@ -49,6 +52,14 @@ export const NAV_GROUPS: NavGroup[] = [
       { label: "Material Library", href: "/materials", icon: Boxes },
       { label: "Quotations", href: "/quotations", icon: FileText },
       { label: "Rate Management", href: "/rates", icon: Tags },
+    ],
+  },
+  {
+    label: "Design",
+    icon: LayoutTemplate,
+    items: [
+      { label: "2D Design", href: "/design/2d", icon: Square },
+      { label: "3D Design", href: "/design/3d", icon: Box },
     ],
   },
   { label: "Leads", href: "/leads", icon: UserPlus },

@@ -8,7 +8,15 @@ import { ROOM_CATEGORY_LABELS } from "@/lib/validations/room";
 import type { RoomWithOpenings } from "@/lib/data/rooms";
 import { computeProjectAreaTotals } from "@/lib/calculations/area";
 
-export function RoomsPanel({ projectId, rooms }: { projectId: string; rooms: RoomWithOpenings[] }) {
+export function RoomsPanel({
+  projectId,
+  rooms,
+  focusRoomId = null,
+}: {
+  projectId: string;
+  rooms: RoomWithOpenings[];
+  focusRoomId?: string | null;
+}) {
   const totals = computeProjectAreaTotals(
     rooms.map((r) => ({
       floorArea: Number(r.floor_area ?? 0),
@@ -46,7 +54,11 @@ export function RoomsPanel({ projectId, rooms }: { projectId: string; rooms: Roo
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {rooms.map((room) => (
-            <Card key={room.id}>
+            <Card
+              key={room.id}
+              id={`room-${room.id}`}
+              className={room.id === focusRoomId ? "ring-2 ring-primary ring-offset-2" : undefined}
+            >
               <CardHeader className="flex flex-row items-start justify-between gap-2">
                 <div>
                   <CardTitle>{room.room_name}</CardTitle>
@@ -54,7 +66,7 @@ export function RoomsPanel({ projectId, rooms }: { projectId: string; rooms: Roo
                     {ROOM_CATEGORY_LABELS[room.room_category]}
                   </Badge>
                 </div>
-                <RoomCardActions room={room} projectId={projectId} />
+                <RoomCardActions room={room} projectId={projectId} defaultEditOpen={room.id === focusRoomId} />
               </CardHeader>
               <CardContent className="flex flex-col gap-3">
                 <p className="text-xs text-muted-foreground">

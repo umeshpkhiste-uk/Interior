@@ -25,12 +25,20 @@ import { listExpenses, listPayments } from "@/lib/data/expenses";
 import { InspirationPanel } from "@/components/inspiration/inspiration-panel";
 import { ReportsPanel } from "@/components/reports/reports-panel";
 
+const PROJECT_TABS = [
+  "overview", "rooms", "estimators", "boq", "quotations", "design-fee", "packages", "cost-profit", "expenses", "inspiration", "reports",
+] as const;
+
 export default async function ProjectDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ tab?: string; focusRoom?: string }>;
 }) {
   const { id } = await params;
+  const { tab, focusRoom } = await searchParams;
+  const initialTab = PROJECT_TABS.find((t) => t === tab) ?? "overview";
   const ctx = await requireCurrentUserContext();
   const project = await getProjectById(ctx.organizationId, id);
   if (!project) notFound();
@@ -76,7 +84,7 @@ export default async function ProjectDetailPage({
         />
       </div>
 
-      <Tabs defaultValue="overview">
+      <Tabs key={initialTab} defaultValue={initialTab}>
         <TabsList variant="line" className="w-full justify-start gap-5 border-b">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="rooms">Room Measurements</TabsTrigger>
@@ -131,7 +139,7 @@ export default async function ProjectDetailPage({
         </TabsContent>
 
         <TabsContent value="rooms">
-          <RoomsPanel projectId={id} rooms={rooms} />
+          <RoomsPanel projectId={id} rooms={rooms} focusRoomId={focusRoom ?? null} />
         </TabsContent>
         <TabsContent value="estimators">
           <EstimatorsPanel projectId={id} />
