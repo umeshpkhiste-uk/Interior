@@ -110,6 +110,7 @@ export const floorPlanSaveSchema = z.object({
         roomId: z.string().uuid(),
         wall: z.enum(PLAN_WALLS),
         offset: z.number().min(0).max(500),
+        swing: z.number().int().min(0).max(3),
         widthFt: z.number().positive().max(30).optional(),
       })
     )

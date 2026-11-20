@@ -10,7 +10,7 @@ import {
   type KeyboardEvent,
 } from "react";
 import { useRouter } from "next/navigation";
-import { RotateCw, Save, Undo2, LayoutGrid, Trash2, DoorOpen, AppWindow } from "lucide-react";
+import { RotateCw, RotateCcw, Save, Undo2, Redo2, LayoutGrid, Trash2, DoorOpen, AppWindow } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -24,8 +24,10 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import {
+  autoArrange,
   clampItem,
   containsPoint,
+  defaultFurniture,
   footprint,
   formatFeetInches,
   isPassage,
@@ -36,6 +38,7 @@ import {
   resolveOpenings,
   alongWall,
   wallLength,
+  type DoorSwing,
   type PlanOpening,
   type ResolvedOpening,
   rotationTransform,
@@ -58,7 +61,7 @@ import {
   type FurnitureType,
   type PlanPassage,
 } from "@/lib/validations/floor-plan";
-import { addFloorPlanArea, addFloorPlanOpening, saveFloorPlanLayout, resetFloorPlanLayout } from "@/lib/actions/floor-plan";
+import { addFloorPlanArea, addFloorPlanOpening, saveFloorPlanLayout } from "@/lib/actions/floor-plan";
 import { deleteOpening, deleteRoom } from "@/lib/actions/rooms";
 import {
   DimensionLine,
@@ -81,13 +84,16 @@ const PAD = { top: 5, left: 3.4, right: 1.5, bottom: 1.5 };
 const SELECT_COLOR = "#d97706";
 const PAPER = "#fbf8f3";
 
+type Snapshot = { rooms: FloorPlanRoom[]; passage: PlanPassage };
+const HISTORY_LIMIT = 100;
+
 type Selection =
   | { kind: "room"; roomId: string }
   | { kind: "item"; roomId: string; itemId: string }
   | { kind: "opening"; roomId: string; openingId: string }
   | null;
 type Drag = {
-  mode: "move" | "resize" | "room-resize" | "opening";
+  mode: "move" | "resize" | "room-resize" | "opening" | "opening-resize";
   roomId: string;
   itemId: string | null;
   openingId?: string;
@@ -172,7 +178,16 @@ export function FloorPlanEditor({
   const [frame, setFrame] = useState(() => frameFor(initialRooms, initialPassage));
   const [selection, setSelection] = useState<Selection>(null);
   const [drag, setDrag] = useState<Drag | null>(null);
-  const [dirty, setDirty] = useState(false);
+  const [baseline, setBaseline] = useState<Snapshot>(() => ({ rooms: initialRooms, passage: initialPassage }));
+  const [past, setPast] = useState<Snapshot[]>([]);
+  const [future, setFuture] = useState<Snapshot[]>([]);
+  const historyKeyRef = useRef<string | null>(null);
+  const lastHistoryKeyRef = useRef<string | null>(null);
+  const dragCounterRef = useRef(0);
+  const dirty = useMemo(
+    () => JSON.stringify({ rooms, passage }) !== JSON.stringify(baseline),
+    [rooms, passage, baseline]
+  );
   const [resetCount, setResetCount] = useState(0);
   const [pending, startTransition] = useTransition();
   const [leaveTarget, setLeaveTarget] = useState<string | null>(null);
@@ -189,10 +204,51 @@ export function FloorPlanEditor({
   const selectedItem =
     selection?.kind === "item" ? selectedRoom?.furniture.find((f) => f.id === selection.itemId) ?? null : null;
 
+  /**
+   * Remembers the state before a change so it can be undone. Changes made under the same
+   * history key (one drag, typing in one box) collapse into a single undo step.
+   */
+  function record() {
+    const key = historyKeyRef.current;
+    if (key !== null && key === lastHistoryKeyRef.current) return;
+    lastHistoryKeyRef.current = key;
+    setPast((p) => [...p.slice(-(HISTORY_LIMIT - 1)), { rooms, passage }]);
+    setFuture([]);
+  }
+
+  function withHistoryKey(key: string, change: () => void) {
+    historyKeyRef.current = key;
+    change();
+    historyKeyRef.current = null;
+  }
+
+  function restore(snapshot: Snapshot) {
+    setRooms(snapshot.rooms);
+    setPassage(snapshot.passage);
+    setFrame(frameFor(snapshot.rooms, snapshot.passage));
+    lastHistoryKeyRef.current = null;
+  }
+
+  function undo() {
+    const previous = past.at(-1);
+    if (!previous || drag) return;
+    setPast(past.slice(0, -1));
+    setFuture([...future, { rooms, passage }]);
+    restore(previous);
+  }
+
+  function redo() {
+    const next = future.at(-1);
+    if (!next || drag) return;
+    setFuture(future.slice(0, -1));
+    setPast([...past, { rooms, passage }]);
+    restore(next);
+  }
+
   function commit(next: FloorPlanRoom[], refit = false) {
+    record();
     setRooms(next);
     if (refit) setFrame(frameFor(next, passage));
-    setDirty(true);
   }
 
   function patchRoom(roomId: string, patch: (room: FloorPlanRoom) => Partial<FloorPlanRoom>, refit = false) {
@@ -225,6 +281,7 @@ export function FloorPlanEditor({
     svgRef.current?.focus({ preventScroll: true });
     const p = toPlanCoords(e);
     setSelection(itemId ? { kind: "item", roomId, itemId } : { kind: "room", roomId });
+    historyKeyRef.current = `drag:${++dragCounterRef.current}`;
     setDrag({ mode, roomId, itemId, pointerId: e.pointerId, startX: p.x, startY: p.y, originX, originY });
   }
 
@@ -242,6 +299,17 @@ export function FloorPlanEditor({
       const turned = room.rotation === 90 || room.rotation === 270;
       const [lengthFt, widthFt] = turned ? [fpH, fpW] : [fpW, fpH];
       if (lengthFt !== room.lengthFt || widthFt !== room.widthFt) setRoomSizeFt(room.id, lengthFt, widthFt);
+      return;
+    }
+
+    if (drag.mode === "opening-resize" && drag.openingId) {
+      const opening = room.openings.find((o) => o.id === drag.openingId);
+      const wall = opening?.wall ?? drag.wall;
+      if (!opening || !wall) return;
+      const len = wallLength(room, wall);
+      const offset = opening.offset ?? drag.originY;
+      const widthFt = Math.min(Math.max(snapToGrid(drag.originX + alongWall(dx, dy, room, wall)), 1), len - offset - 0.1);
+      if (widthFt !== opening.widthFt || wall !== opening.wall) patchOpening(room.id, opening.id, { wall, offset, widthFt });
       return;
     }
 
@@ -291,14 +359,16 @@ export function FloorPlanEditor({
   function endDrag(e: ReactPointerEvent) {
     if (!drag || e.pointerId !== drag.pointerId) return;
     setDrag(null);
+    historyKeyRef.current = null;
     if (drag.itemId && drag.mode === "move") dropItem(drag.roomId, drag.itemId);
-    else if (!drag.itemId && drag.mode !== "opening") setFrame(frameFor(rooms, passage));
+    else if (!drag.itemId && drag.mode !== "opening" && drag.mode !== "opening-resize") setFrame(frameFor(rooms, passage));
   }
 
   function setItemSize(field: "w" | "h", value: number) {
     if (!selectedRoom || !selectedItem) return;
-    patchItem(selectedRoom.id, selectedItem.id, (f, r) =>
-      resizeItem(f, r, field === "w" ? value : f.w, field === "h" ? value : f.h)
+    const { id } = selectedItem;
+    withHistoryKey(`item-size:${id}:${field}`, () =>
+      patchItem(selectedRoom.id, id, (f, r) => resizeItem(f, r, field === "w" ? value : f.w, field === "h" ? value : f.h))
     );
   }
 
@@ -338,7 +408,11 @@ export function FloorPlanEditor({
   }
 
   function rotateSelection() {
-    if (!selectedRoom || selectedOpening) return;
+    if (!selectedRoom) return;
+    if (selectedOpening) {
+      rotateOpening();
+      return;
+    }
     if (selectedItem) {
       patchItem(selectedRoom.id, selectedItem.id, (f) => {
         const before = footprint(f);
@@ -375,7 +449,7 @@ export function FloorPlanEditor({
   }
 
   /** Starts dragging a door/window along its wall; an auto-placed one is pinned where it is drawn. */
-  function startOpeningDrag(e: ReactPointerEvent, room: FloorPlanRoom, placed: ResolvedOpening) {
+  function startOpeningDrag(e: ReactPointerEvent, room: FloorPlanRoom, placed: ResolvedOpening, mode: "opening" | "opening-resize" = "opening") {
     if (!placed.opening.movable) {
       e.stopPropagation();
       setSelection({ kind: "opening", roomId: room.id, openingId: placed.opening.id });
@@ -386,8 +460,9 @@ export function FloorPlanEditor({
     svgRef.current?.focus({ preventScroll: true });
     const p = toPlanCoords(e);
     setSelection({ kind: "opening", roomId: room.id, openingId: placed.opening.id });
+    historyKeyRef.current = `drag:${++dragCounterRef.current}`;
     setDrag({
-      mode: "opening",
+      mode,
       roomId: room.id,
       itemId: null,
       openingId: placed.opening.id,
@@ -395,8 +470,8 @@ export function FloorPlanEditor({
       pointerId: e.pointerId,
       startX: p.x,
       startY: p.y,
-      originX: placed.offset,
-      originY: 0,
+      originX: mode === "opening" ? placed.offset : placed.width,
+      originY: placed.offset,
     });
   }
 
@@ -410,7 +485,39 @@ export function FloorPlanEditor({
 
   function setOpeningWidth(widthFt: number) {
     if (!selectedRoom || !selectedOpening) return;
-    patchOpening(selectedRoom.id, selectedOpening.id, { widthFt });
+    const room = selectedRoom;
+    const opening = selectedOpening;
+    withHistoryKey(`opening-width:${opening.id}`, () => {
+      const placed = resolveOpenings(room, sharedWallsByRoom.get(room.id) ?? new Set()).find((p) => p.opening.id === opening.id);
+      const wall = opening.wall ?? placed?.wall;
+      if (!wall) return;
+      const offset = opening.offset ?? placed?.offset ?? 0.1;
+      patchOpening(room.id, opening.id, { wall, offset, widthFt: Math.min(widthFt, wallLength(room, wall) - offset - 0.1) });
+    });
+  }
+
+  /** Doors: turn the swing a quarter (hinge side / opening direction). Windows: move to the next wall clockwise. */
+  function rotateOpening() {
+    if (!selectedRoom || !selectedOpening?.movable) return;
+    const room = selectedRoom;
+    const opening = selectedOpening;
+    const placed = resolveOpenings(room, sharedWallsByRoom.get(room.id) ?? new Set()).find((p) => p.opening.id === opening.id);
+    const wall = opening.wall ?? placed?.wall;
+    if (!wall) return;
+    if (opening.type === "door") {
+      patchOpening(room.id, opening.id, {
+        wall,
+        offset: opening.offset ?? placed?.offset ?? 0.1,
+        swing: ((opening.swing + 1) % 4) as DoorSwing,
+      });
+      return;
+    }
+    const start = WALLS.indexOf(wall);
+    const next = [1, 2, 3].map((k) => WALLS[(start + k) % 4]).find((w) => !room.openWalls.includes(w));
+    if (!next) return;
+    const len = wallLength(room, next);
+    const width = Math.min(opening.widthFt || 4, len - 0.2);
+    patchOpening(room.id, opening.id, { wall: next, offset: Math.max(0.1, snapToGrid((len - width) / 2)), widthFt: width });
   }
 
   function addOpening(type: "door" | "window") {
@@ -464,6 +571,10 @@ export function FloorPlanEditor({
   }
 
   function resizeRoom(roomId: string, field: "length" | "width", value: number) {
+    withHistoryKey(`size:${roomId}:${field}`, () => resizeRoomNow(roomId, field, value));
+  }
+
+  function resizeRoomNow(roomId: string, field: "length" | "width", value: number) {
     patchRoom(
       roomId,
       (r) => {
@@ -486,9 +597,9 @@ export function FloorPlanEditor({
 
   function changePassage(side: keyof PlanPassage, feet: number) {
     const next = { ...passage, [side]: feet };
+    withHistoryKey(`passage:${side}`, record);
     setPassage(next);
     setFrame(frameFor(rooms, next));
-    setDirty(true);
   }
 
   function addFurniture(type: FurnitureType) {
@@ -517,6 +628,10 @@ export function FloorPlanEditor({
     if (!selectedRoom) return;
     if (selection?.kind === "opening") {
       if (e.key === "Escape") setSelection(null);
+      if (e.key === "r" || e.key === "R") {
+        e.preventDefault();
+        rotateOpening();
+      }
       return;
     }
     const step = e.shiftKey ? 1 : GRID_FT;
@@ -547,10 +662,8 @@ export function FloorPlanEditor({
   }
 
   function discardChanges() {
-    setRooms(initialRooms);
-    setPassage(initialPassage);
-    setFrame(frameFor(initialRooms, initialPassage));
-    markSaved();
+    record();
+    restore(baseline);
     setResetCount((n) => n + 1);
   }
 
@@ -558,7 +671,7 @@ export function FloorPlanEditor({
   function layoutPayload() {
     const minX = Math.min(...rooms.map((r) => r.x));
     const minY = Math.min(...rooms.map((r) => r.y));
-    const initialById = new Map(initialRooms.map((r) => [r.id, r]));
+    const initialById = new Map(baseline.rooms.map((r) => [r.id, r]));
     return {
       minX,
       minY,
@@ -583,24 +696,34 @@ export function FloorPlanEditor({
   }
 
   function changedOpenings() {
-    const before = new Map(initialRooms.flatMap((r) => r.openings.map((o) => [o.id, o] as const)));
+    const before = new Map(baseline.rooms.flatMap((r) => r.openings.map((o) => [o.id, o] as const)));
     return rooms.flatMap((r) =>
       r.openings.flatMap((o) => {
         const was = before.get(o.id);
         if (!o.movable || !o.wall || o.offset == null || !was) return [];
         const widthChanged = was.widthFt !== o.widthFt;
-        if (was.wall === o.wall && was.offset === o.offset && !widthChanged) return [];
-        return [{ id: o.rowId, roomId: r.id, wall: o.wall, offset: o.offset, ...(widthChanged ? { widthFt: o.widthFt } : {}) }];
+        if (was.wall === o.wall && was.offset === o.offset && was.swing === o.swing && !widthChanged) return [];
+        return [
+          {
+            id: o.rowId,
+            roomId: r.id,
+            wall: o.wall,
+            offset: o.offset,
+            swing: o.swing,
+            ...(widthChanged ? { widthFt: o.widthFt } : {}),
+          },
+        ];
       })
     );
   }
 
-  /** Saves unsaved edits first so adding or removing an area doesn't throw them away. */
+  /** The current layout becomes the "saved" version that unsaved changes are measured against. */
   function markSaved() {
     dirtyRef.current = false;
-    setDirty(false);
+    setBaseline({ rooms, passage });
   }
 
+  /** Saves unsaved edits first so adding or removing an area doesn't throw them away. */
   async function saveIfDirty(): Promise<boolean> {
     if (!dirty) return true;
     const result = await saveFloorPlanLayout(projectId, layoutPayload().payload);
@@ -691,23 +814,46 @@ export function FloorPlanEditor({
     });
   }
 
+  /** Re-lays every room out automatically with default furniture — local and undoable, saved with Save layout. */
   function resetToAuto() {
-    if (!window.confirm("Reset every room and its furniture to the automatic arrangement? Saved positions will be cleared.")) return;
-    startTransition(async () => {
-      const result = await resetFloorPlanLayout(projectId);
-      if (result.error) {
-        toast.error(result.error);
-        return;
-      }
-      markSaved();
-      toast.success("Layout reset to automatic arrangement");
-      router.refresh();
+    const fresh = rooms.map((r) => {
+      const unrotated = { ...r, rotation: 0 as PlanRotation, openWalls: [] };
+      return { ...unrotated, furniture: defaultFurniture(unrotated) };
     });
+    const arranged = autoArrange(fresh);
+    const order = new Map(rooms.map((r, i) => [r.id, i]));
+    commit(arranged.sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0)), true);
+    setSelection(null);
+    toast.success("Rooms re-arranged automatically — use Undo to go back");
   }
+
 
   useEffect(() => {
     dirtyRef.current = dirty;
     payloadRef.current = () => layoutPayload().payload;
+  });
+
+  useEffect(() => {
+    lastHistoryKeyRef.current = null;
+  }, [selection]);
+
+  // Ctrl/Cmd+Z undo, Ctrl/Cmd+Shift+Z or Ctrl+Y redo — except while typing in a field.
+  useEffect(() => {
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      const target = e.target as HTMLElement | null;
+      if (target?.closest("input, textarea, select, [contenteditable=true]")) return;
+      const key = e.key.toLowerCase();
+      if (key === "z" && !e.shiftKey) {
+        e.preventDefault();
+        undo();
+      } else if ((key === "z" && e.shiftKey) || key === "y") {
+        e.preventDefault();
+        redo();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
   });
 
   // Closing the tab, reloading or typing a new address: the browser shows its own "Leave site?" prompt.
@@ -762,8 +908,16 @@ export function FloorPlanEditor({
         <Button size="sm" onClick={save} disabled={!dirty || pending}>
           <Save className="size-4" /> {pending ? "Saving..." : "Save layout"}
         </Button>
+        <div className="flex items-center rounded-md border">
+          <Button size="sm" variant="ghost" onClick={undo} disabled={past.length === 0 || pending} title="Undo (Ctrl/⌘+Z)" aria-label="Undo">
+            <Undo2 className="size-4" /> Undo
+          </Button>
+          <Button size="sm" variant="ghost" onClick={redo} disabled={future.length === 0 || pending} title="Redo (Ctrl/⌘+Shift+Z)" aria-label="Redo">
+            <Redo2 className="size-4" /> Redo
+          </Button>
+        </div>
         <Button size="sm" variant="ghost" onClick={discardChanges} disabled={!dirty || pending}>
-          <Undo2 className="size-4" /> Discard changes
+          <RotateCcw className="size-4" /> Discard changes
         </Button>
         <Button size="sm" variant="ghost" onClick={resetToAuto} disabled={pending}>
           <LayoutGrid className="size-4" /> Auto-arrange
@@ -906,8 +1060,21 @@ export function FloorPlanEditor({
                       className={placed.opening.movable ? "cursor-ew-resize" : "cursor-pointer"}
                       style={{ touchAction: "none" }}
                     >
-                      <OpeningShape type={placed.opening.type} offset={placed.offset} width={placed.width} floor={floor} selected={selected} />
-                      <rect x={placed.offset} y={-0.45} width={placed.width} height={0.9 + swing * 0.5} fill="transparent" />
+                      <OpeningShape
+                        type={placed.opening.type}
+                        offset={placed.offset}
+                        width={placed.width}
+                        swing={placed.opening.swing}
+                        floor={floor}
+                        selected={selected}
+                      />
+                      <rect
+                        x={placed.offset}
+                        y={placed.opening.swing >= 2 ? -0.45 - swing * 0.5 : -0.45}
+                        width={placed.width}
+                        height={0.9 + swing * 0.5}
+                        fill="transparent"
+                      />
                     </g>
                   );
                 })}
@@ -953,6 +1120,35 @@ export function FloorPlanEditor({
               />
             </g>
           )}
+
+          {selectedRoom && selectedOpening?.movable && (() => {
+            const placed = resolveOpenings(selectedRoom, sharedWallsByRoom.get(selectedRoom.id) ?? new Set()).find(
+              (p) => p.opening.id === selectedOpening.id
+            );
+            if (!placed) return null;
+            return (
+              <g
+                transform={`translate(${selectedRoom.x} ${selectedRoom.y}) ${localTransform(selectedRoom)} ${wallFrameTransform(
+                  placed.wall,
+                  selectedRoom.lengthFt,
+                  selectedRoom.widthFt
+                )}`}
+              >
+                <circle
+                  cx={placed.offset + placed.width}
+                  cy={0}
+                  r={0.3}
+                  fill="#fff"
+                  stroke={SELECT_COLOR}
+                  strokeWidth={0.08}
+                  className="cursor-ew-resize"
+                  style={{ touchAction: "none" }}
+                  aria-label={`Resize ${selectedOpening.type}`}
+                  onPointerDown={(e) => startOpeningDrag(e, selectedRoom, placed, "opening-resize")}
+                />
+              </g>
+            );
+          })()}
 
           {selection?.kind === "room" && selectedRoom && (
             <rect
@@ -1110,7 +1306,7 @@ function SelectionPanel({
             </span>
             <span className="text-xs text-muted-foreground">
               {opening.movable
-                ? "Drag it along the wall to move it, or pick another wall below"
+                ? "Drag to move along the wall, drag the end dot to resize, Rotate to turn it (R)"
                 : "Added on Room Measurements with a quantity above 1 — edit it there, or add single doors/windows here"}
             </span>
           </div>
@@ -1118,7 +1314,16 @@ function SelectionPanel({
             <DimensionInput label="Width (ft)" value={opening.widthFt} onCommit={onOpeningWidth} disabled={disabled} />
           )}
           {opening.movable && (
-            <div className="ml-auto">
+            <div className="ml-auto flex flex-wrap items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={onRotate}
+                disabled={disabled}
+                title={opening.type === "door" ? "Turn the door swing (hinge side / opening direction)" : "Move to the next wall"}
+              >
+                <RotateCw className="size-4" /> Rotate
+              </Button>
               <Button size="sm" variant="outline" onClick={onRemoveOpening} disabled={disabled}>
                 <Trash2 className="size-4" /> Remove {label.toLowerCase()}
               </Button>

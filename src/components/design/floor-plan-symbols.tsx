@@ -136,45 +136,59 @@ export function OpeningShape({
   type,
   offset: o,
   width,
+  swing,
   floor,
   selected,
 }: {
   type: "door" | "window";
   offset: number;
   width: number;
+  swing: 0 | 1 | 2 | 3;
   floor: string;
   selected: boolean;
 }) {
   const half = WALL_FT / 2;
-  const outline = selected ? (
-    <rect
-      x={o - 0.12}
-      y={-half - 0.12}
-      width={width + 0.24}
-      height={(type === "door" ? width : 0) + WALL_FT + 0.24}
-      fill="none"
-      stroke="#d97706"
-      strokeWidth={0.06}
-      strokeDasharray="0.25 0.15"
-    />
-  ) : null;
   if (type === "window") {
     return (
       <>
         <rect x={o} y={-half} width={width} height={WALL_FT} fill="#e9eef1" stroke="#8d969c" strokeWidth={0.025} />
         <line x1={o} y1={-half / 3} x2={o + width} y2={-half / 3} stroke="#9fb3c0" strokeWidth={0.03} />
         <line x1={o} y1={half / 3} x2={o + width} y2={half / 3} stroke="#9fb3c0" strokeWidth={0.03} />
-        {outline}
+        {selected && <SelectionBox x={o} y={-half} w={width} h={WALL_FT} />}
       </>
     );
   }
+  const w = width;
+  const hingeAtEnd = swing === 1 || swing === 2;
+  const outward = swing === 2 || swing === 3;
+  const hx = hingeAtEnd ? o + w : o;
+  const dir = outward ? -1 : 1;
+  // Leaf stands open at 90° from the hinge; the arc runs from its tip back to the far jamb.
+  const arc = hingeAtEnd
+    ? `M ${o} 0 A ${w} ${w} 0 0 ${outward ? 1 : 0} ${hx} ${dir * w}`
+    : `M ${hx} ${dir * w} A ${w} ${w} 0 0 ${outward ? 1 : 0} ${o + w} 0`;
   return (
     <>
-      <rect x={o} y={-half - 0.02} width={width} height={WALL_FT + 0.04} fill={floor} />
-      <path d={`M ${o} ${width} A ${width} ${width} 0 0 0 ${o + width} 0`} fill="none" stroke="#6b625a" strokeWidth={0.03} />
-      <rect x={o - 0.04} y={0} width={0.08} height={width} fill="#f7f4ee" stroke="#6b625a" strokeWidth={0.02} />
-      {outline}
+      <rect x={o} y={-half - 0.02} width={w} height={WALL_FT + 0.04} fill={floor} />
+      <path d={arc} fill="none" stroke="#6b625a" strokeWidth={0.03} />
+      <rect x={hx - 0.04} y={outward ? -w : 0} width={0.08} height={w} fill="#f7f4ee" stroke="#6b625a" strokeWidth={0.02} />
+      {selected && <SelectionBox x={o} y={outward ? -w : -half} w={w} h={w + half} />}
     </>
+  );
+}
+
+function SelectionBox({ x, y, w, h }: { x: number; y: number; w: number; h: number }) {
+  return (
+    <rect
+      x={x - 0.12}
+      y={y - 0.12}
+      width={w + 0.24}
+      height={h + 0.24}
+      fill="none"
+      stroke="#d97706"
+      strokeWidth={0.06}
+      strokeDasharray="0.25 0.15"
+    />
   );
 }
 

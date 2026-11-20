@@ -35,9 +35,13 @@ export type PlanOpening = {
   /** Own-frame wall and feet along it; null = placed automatically. */
   wall: Wall | null;
   offset: number | null;
+  /** Door swing: 0 hinge-start/inward, 1 hinge-end/inward, 2 hinge-end/outward, 3 hinge-start/outward. */
+  swing: DoorSwing;
   /** Rows with quantity > 1 are drawn but can only be edited on Room Measurements. */
   movable: boolean;
 };
+
+export type DoorSwing = 0 | 1 | 2 | 3;
 
 export type ResolvedOpening = { opening: PlanOpening; wall: Wall; offset: number; width: number };
 
@@ -478,4 +482,27 @@ export function sharedWalls(room: FloorPlanRoom, rooms: FloorPlanRoom[]): Set<Wa
     }
   }
   return shared;
+}
+
+/** Lays rooms out in rows (largest first), starting at startY, unrotated. */
+export function autoArrange(rooms: FloorPlanRoom[], startY = 0): FloorPlanRoom[] {
+  if (rooms.length === 0) return [];
+  const totalArea = rooms.reduce((acc, r) => acc + r.lengthFt * r.widthFt, 0);
+  const maxRowWidth = Math.max(...rooms.map((r) => r.lengthFt), Math.sqrt(totalArea) * 1.3);
+  const sorted = [...rooms].sort((a, b) => b.lengthFt * b.widthFt - a.lengthFt * a.widthFt);
+
+  let cursorX = 0;
+  let cursorY = startY;
+  let rowHeight = 0;
+  return sorted.map((room) => {
+    if (cursorX > 0 && cursorX + room.lengthFt > maxRowWidth) {
+      cursorY += rowHeight;
+      cursorX = 0;
+      rowHeight = 0;
+    }
+    const positioned = { ...room, x: cursorX, y: cursorY, rotation: 0 as PlanRotation };
+    cursorX += room.lengthFt;
+    rowHeight = Math.max(rowHeight, room.widthFt);
+    return positioned;
+  });
 }

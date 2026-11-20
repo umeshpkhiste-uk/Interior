@@ -75,8 +75,8 @@ async function ProjectFloorPlan({
 }) {
   const { rooms, missing, passage } = await getFloorPlan(organizationId, projectId);
   const totalAreaSqft = rooms.reduce((acc, r) => acc + r.lengthFt * r.widthFt, 0);
-  // Remount the editor whenever the saved layout or room set changes, so it starts from the server's state.
-  const layoutKey = JSON.stringify({ rooms, passage });
+  // Rebuild the editor only when rooms/doors/windows are added or removed, so a plain save keeps its undo history.
+  const layoutKey = rooms.map((r) => `${r.id}:${r.openings.map((o) => o.id).join(",")}`).join("|");
 
   return (
     <div className="flex flex-col gap-4">

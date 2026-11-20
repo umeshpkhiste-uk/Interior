@@ -1,5 +1,5 @@
 import { listRoomsForProject } from "@/lib/data/rooms";
-import { clampItem, defaultFurniture, footprint, type FloorPlanRoom, type PlanOpening, type PlanRotation } from "@/lib/calculations/floor-plan";
+import { autoArrange, clampItem, defaultFurniture, footprint, type FloorPlanRoom, type PlanOpening, type PlanRotation } from "@/lib/calculations/floor-plan";
 import { NO_PASSAGE, PLAN_WALLS, furnitureItemSchema, passageSchema, type PlanPassage } from "@/lib/validations/floor-plan";
 import { createClient } from "@/lib/supabase/server";
 
@@ -65,7 +65,13 @@ export async function getFloorPlan(organizationId: string, projectId: string): P
     }
     const openings = row.openings.flatMap((o): PlanOpening[] => {
       if (o.opening_type === "other" || o.quantity <= 0) return [];
-      const base = { rowId: o.id, type: o.opening_type, widthFt: Number(o.width ?? 0), heightFt: Number(o.height ?? 0) };
+      const base = {
+        rowId: o.id,
+        type: o.opening_type,
+        widthFt: Number(o.width ?? 0),
+        heightFt: Number(o.height ?? 0),
+        swing: (o.plan_swing ?? 0) as PlanOpening["swing"],
+      };
       if (o.quantity === 1) {
         const wall = (PLAN_WALLS as readonly string[]).includes(o.plan_wall ?? "") ? (o.plan_wall as PlanOpening["wall"]) : null;
         return [{ ...base, id: o.id, wall, offset: o.plan_offset == null ? null : Number(o.plan_offset), movable: true }];
@@ -101,27 +107,5 @@ export async function getFloorPlan(organizationId: string, projectId: string): P
   }
 
   const startY = placed.reduce((max, r) => Math.max(max, r.y + footprint(r).h), 0);
-  return { rooms: [...placed, ...packIntoRows(unplaced, startY)], missing, passage };
-}
-
-function packIntoRows(rooms: FloorPlanRoom[], startY: number): FloorPlanRoom[] {
-  if (rooms.length === 0) return [];
-  const totalArea = rooms.reduce((acc, r) => acc + r.lengthFt * r.widthFt, 0);
-  const maxRowWidth = Math.max(...rooms.map((r) => r.lengthFt), Math.sqrt(totalArea) * 1.3);
-  const sorted = [...rooms].sort((a, b) => b.lengthFt * b.widthFt - a.lengthFt * a.widthFt);
-
-  let cursorX = 0;
-  let cursorY = startY;
-  let rowHeight = 0;
-  return sorted.map((room) => {
-    if (cursorX > 0 && cursorX + room.lengthFt > maxRowWidth) {
-      cursorY += rowHeight;
-      cursorX = 0;
-      rowHeight = 0;
-    }
-    const positioned = { ...room, x: cursorX, y: cursorY, rotation: 0 as PlanRotation };
-    cursorX += room.lengthFt;
-    rowHeight = Math.max(rowHeight, room.widthFt);
-    return positioned;
-  });
+  return { rooms: [...placed, ...autoArrange(unplaced, startY)], missing, passage };
 }

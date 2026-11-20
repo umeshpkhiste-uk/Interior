@@ -84,20 +84,6 @@ export async function saveFloorPlanLayout(projectId: string, input: FloorPlanSav
   return { error: null, data: undefined };
 }
 
-export async function resetFloorPlanLayout(projectId: string): Promise<ActionResult> {
-  const ctx = await requireCurrentUserContext();
-  const supabase = await createClient();
-  const { error } = await supabase
-    .from("project_rooms")
-    .update({ plan_x: null, plan_y: null, plan_rotation: 0, plan_furniture: null, plan_open_walls: [] })
-    .eq("organization_id", ctx.organizationId)
-    .eq("project_id", projectId);
-  if (error) return { error: error.message };
-
-  revalidatePath("/design/2d");
-  return { error: null, data: undefined };
-}
-
 /**
  * Adds a space (passage, WC, balcony…) straight from the plan. It is a normal room,
  * so it also appears on Room Measurements; passages start with no walls.
@@ -152,7 +138,7 @@ async function saveOpeningPlacements(
     if (!projectRoomIds.has(o.roomId)) return "Opening does not belong to this project";
     const { data: row, error } = await supabase
       .from("room_openings")
-      .update({ plan_wall: o.wall, plan_offset: round2(o.offset) })
+      .update({ plan_wall: o.wall, plan_offset: round2(o.offset), plan_swing: o.swing })
       .eq("id", o.id)
       .eq("room_id", o.roomId)
       .eq("organization_id", organizationId)
