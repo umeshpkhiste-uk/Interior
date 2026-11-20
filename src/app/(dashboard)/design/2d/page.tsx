@@ -100,7 +100,7 @@ async function ProjectFloorPlan({
             <CardTitle className="text-sm font-medium">Floor plan</CardTitle>
           </CardHeader>
           <CardContent>
-            <FloorPlanEditor key={layoutKey} projectId={projectId} initialRooms={rooms} />
+            <FloorPlanEditor key={layoutKey} projectId={projectId} projectName={projectName} initialRooms={rooms} />
           </CardContent>
         </Card>
       ) : (

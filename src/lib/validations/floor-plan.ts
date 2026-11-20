@@ -2,7 +2,7 @@ import { z } from "zod";
 
 export const FURNITURE_TYPES = [
   "bed", "side_table", "wardrobe", "sofa", "coffee_table", "tv_unit", "dining_set", "study_table",
-  "counter_straight", "counter_l", "sink", "hob", "wc", "basin", "washer",
+  "counter_straight", "counter_l", "sink", "hob", "wc", "basin", "washer", "rug", "plant",
 ] as const;
 
 export type FurnitureType = (typeof FURNITURE_TYPES)[number];
@@ -23,6 +23,8 @@ export const FURNITURE_LABELS: Record<FurnitureType, string> = {
   wc: "WC",
   basin: "Wash basin",
   washer: "Washing machine",
+  rug: "Rug",
+  plant: "Plant",
 };
 
 /** Default own size (w along x, h along y) in feet. */
@@ -42,6 +44,8 @@ export const FURNITURE_SIZES: Record<FurnitureType, { w: number; h: number }> = 
   wc: { w: 1.6, h: 2.5 },
   basin: { w: 1.6, h: 1.2 },
   washer: { w: 2.2, h: 2.2 },
+  rug: { w: 6, h: 5 },
+  plant: { w: 1.2, h: 1.2 },
 };
 
 export const rotationSchema = z.union([z.literal(0), z.literal(90), z.literal(180), z.literal(270)]);

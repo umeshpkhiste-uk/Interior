@@ -10,6 +10,7 @@ import {
   clampItem,
   footprint,
   formatFeetInches,
+  labelAnchor,
   newFurnitureItem,
   overlappingRoomIds,
   rotationTransform,
@@ -21,17 +22,28 @@ import {
 import { toStandardFeet } from "@/lib/calculations/area";
 import { FURNITURE_LABELS, FURNITURE_TYPES, type FurnitureItem, type FurnitureType } from "@/lib/validations/floor-plan";
 import { saveFloorPlanLayout, resetFloorPlanLayout } from "@/lib/actions/floor-plan";
-import { FurnitureShape, RoomDecoration, RoomOpenings, WALL_COLOR, WALL_FT, localTransform } from "./floor-plan-symbols";
+import {
+  DimensionLine,
+  FLOOR_FILL,
+  FurnitureShape,
+  PlanDefs,
+  RoomOpenings,
+  WALL_COLOR,
+  WALL_FT,
+  floorKind,
+  localTransform,
+} from "./floor-plan-symbols";
 
 const GRID_FT = 0.25;
 const EDGE_SNAP_FT = 0.6;
-const PAD_FT = 3;
+const PAD = { top: 5, left: 3.4, right: 1.5, bottom: 1.5 };
 const SELECT_COLOR = "#d97706";
+const PAPER = "#fbf8f3";
 
 type Selection = { kind: "room"; roomId: string } | { kind: "item"; roomId: string; itemId: string } | null;
 type Drag = { roomId: string; itemId: string | null; pointerId: number; startX: number; startY: number; originX: number; originY: number };
 
-function frameFor(rooms: FloorPlanRoom[]) {
+function boundsOf(rooms: FloorPlanRoom[]) {
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   for (const r of rooms) {
     const { w, h } = footprint(r);
@@ -40,8 +52,21 @@ function frameFor(rooms: FloorPlanRoom[]) {
     maxX = Math.max(maxX, r.x + w);
     maxY = Math.max(maxY, r.y + h);
   }
-  return { x: minX - PAD_FT, y: minY - PAD_FT, w: maxX - minX + PAD_FT * 2, h: maxY - minY + PAD_FT * 2 };
+  return { minX, minY, maxX, maxY };
 }
+
+function frameFor(rooms: FloorPlanRoom[]) {
+  const b = boundsOf(rooms);
+  return {
+    x: b.minX - PAD.left,
+    y: b.minY - PAD.top,
+    w: b.maxX - b.minX + PAD.left + PAD.right,
+    h: b.maxY - b.minY + PAD.top + PAD.bottom,
+  };
+}
+
+/** Rugs sit under everything else in the room. */
+const drawOrder = (items: FurnitureItem[]) => [...items].sort((a, b) => Number(b.type === "rug") - Number(a.type === "rug"));
 
 const snapToGrid = (v: number) => Math.round(v / GRID_FT) * GRID_FT;
 const nextRotation = (r: PlanRotation) => ((r + 90) % 360) as PlanRotation;
@@ -62,7 +87,15 @@ function snapToEdges(pos: number, size: number, edges: number[]): number {
   return best;
 }
 
-export function FloorPlanEditor({ projectId, initialRooms }: { projectId: string; initialRooms: FloorPlanRoom[] }) {
+export function FloorPlanEditor({
+  projectId,
+  projectName,
+  initialRooms,
+}: {
+  projectId: string;
+  projectName: string;
+  initialRooms: FloorPlanRoom[];
+}) {
   const router = useRouter();
   const svgRef = useRef<SVGSVGElement>(null);
   const [rooms, setRooms] = useState(initialRooms);
@@ -314,7 +347,7 @@ export function FloorPlanEditor({ projectId, initialRooms }: { projectId: string
         onCounterShape={setCounterShape}
       />
 
-      <div className="overflow-hidden rounded-lg border bg-white">
+      <div className="overflow-hidden rounded-lg border" style={{ background: PAPER }}>
         <svg
           ref={svgRef}
           viewBox={`${frame.x} ${frame.y} ${frame.w} ${frame.h}`}
@@ -328,30 +361,27 @@ export function FloorPlanEditor({ projectId, initialRooms }: { projectId: string
           onPointerCancel={endDrag}
           onPointerDown={() => setSelection(null)}
         >
-          <defs>
-            <pattern id="plan-grid" width={1} height={1} patternUnits="userSpaceOnUse">
-              <path d="M 1 0 L 0 0 0 1" fill="none" stroke="#f1f3f5" strokeWidth={0.025} />
-            </pattern>
-          </defs>
-          <rect x={frame.x} y={frame.y} width={frame.w} height={frame.h} fill="url(#plan-grid)" />
+          <PlanDefs />
+          <rect x={frame.x} y={frame.y} width={frame.w} height={frame.h} fill={PAPER} />
+          <PlanTitle rooms={rooms} projectName={projectName} />
 
           {rooms.map((room) => {
             const { w, h } = footprint(room);
             const roomSelected = selection?.kind === "room" && selection.roomId === room.id;
-            const fill = overlapping.has(room.id) ? "#fde2e2" : roomSelected ? "#fff8eb" : "#fff";
+            const tint = overlapping.has(room.id) ? "#ef444440" : roomSelected ? "#f59e0b26" : null;
             return (
               <g key={`floor-${room.id}`} transform={`translate(${room.x} ${room.y})`}>
                 <rect
                   width={w}
                   height={h}
-                  fill={fill}
+                  fill={FLOOR_FILL[floorKind(room.category)]}
                   onPointerDown={(e) => startDrag(e, room.id, null, room.x, room.y)}
                   className={drag?.roomId === room.id && !drag.itemId ? "cursor-grabbing" : "cursor-grab"}
                   style={{ touchAction: "none" }}
                 />
+                {tint && <rect width={w} height={h} fill={tint} pointerEvents="none" />}
                 <g transform={localTransform(room)}>
-                  <RoomDecoration room={room} />
-                  {room.furniture.map((item) => {
+                  {drawOrder(room.furniture).map((item) => {
                     const itemSelected = selection?.kind === "item" && selection.itemId === item.id;
                     return (
                       <g
@@ -406,17 +436,19 @@ export function FloorPlanEditor({ projectId, initialRooms }: { projectId: string
           ))}
 
           {rooms.map((room) => {
-            const { w, h } = footprint(room);
             const fs = labelSize(room);
-            const cx = room.x + w / 2;
-            const cy = room.y + h / 2;
+            const sizeText = `${formatFeetInches(room.lengthFt)} x ${formatFeetInches(room.widthFt)}`;
+            const labelW = Math.max(room.name.length * fs * 0.72, sizeText.length * fs * 0.85 * 0.58);
+            const anchor = labelAnchor(room, labelW, fs * 2.4);
+            const cx = anchor.x;
+            const cy = anchor.y - fs * 0.35;
             return (
               <g key={`label-${room.id}`} pointerEvents="none" fontFamily="Arial, Helvetica, sans-serif" textAnchor="middle">
-                <text x={cx} y={cy} fontSize={fs} fontWeight={700} fill="#1f1f1f" stroke="#fff" strokeWidth={fs * 0.3} paintOrder="stroke" letterSpacing={0.02}>
+                <text x={cx} y={cy} fontSize={fs} fontWeight={700} fill="#2b2b2b" stroke="#fbf8f3b3" strokeWidth={fs * 0.2} paintOrder="stroke" letterSpacing={0.02}>
                   {room.name.toUpperCase()}
                 </text>
-                <text x={cx} y={cy + fs * 1.2} fontSize={fs * 0.82} fill="#333" stroke="#fff" strokeWidth={fs * 0.3} paintOrder="stroke">
-                  {formatFeetInches(room.lengthFt)} x {formatFeetInches(room.widthFt)}
+                <text x={cx} y={cy + fs * 1.2} fontSize={fs * 0.85} fontWeight={600} fill="#3a3a3a" stroke="#fbf8f3b3" strokeWidth={fs * 0.2} paintOrder="stroke">
+                  {sizeText}
                 </text>
               </g>
             );
@@ -438,6 +470,28 @@ export function FloorPlanEditor({ projectId, initialRooms }: { projectId: string
         </svg>
       </div>
     </div>
+  );
+}
+
+/** Title, overall plot size and the overall width/depth dimension lines around the plan. */
+function PlanTitle({ rooms, projectName }: { rooms: FloorPlanRoom[]; projectName: string }) {
+  const b = boundsOf(rooms);
+  const width = formatFeetInches(b.maxX - b.minX);
+  const depth = formatFeetInches(b.maxY - b.minY);
+  const cx = (b.minX + b.maxX) / 2;
+  const dimY = b.minY - 1.4;
+  const dimX = b.minX - 1.6;
+  return (
+    <g pointerEvents="none" fontFamily="Arial, Helvetica, sans-serif" textAnchor="middle">
+      <text x={cx} y={b.minY - 3.9} fontSize={0.85} fontWeight={800} fill="#1f1f1f" letterSpacing={0.03}>
+        {projectName.toUpperCase()} — FLOOR PLAN
+      </text>
+      <text x={cx} y={b.minY - 3.0} fontSize={0.55} fill="#4a4a4a" letterSpacing={0.03}>
+        PLOT SIZE: {width.replace(/-0"$/, "")} x {depth.replace(/-0"$/, "")}
+      </text>
+      <DimensionLine x1={b.minX} y1={dimY} x2={b.maxX} y2={dimY} label={width} />
+      <DimensionLine x1={dimX} y1={b.minY} x2={dimX} y2={b.maxY} label={depth} vertical />
+    </g>
   );
 }
 

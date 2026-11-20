@@ -99,6 +99,7 @@ export function defaultFurniture(room: Pick<FloorPlanRoom, "category" | "lengthF
       const bedH = Math.min(6.5, W - 2.5);
       const bx = (L - bedW) / 2;
       const items = [
+        item("rug", "rug", Math.max(0.3, bx - 0.8), 2.4, Math.min(bedW + 1.6, L - 0.6), Math.min(5.5, W - 2.8)),
         item("bed", "bed", bx, 0.4, bedW, bedH),
         item("side-left", "side_table", bx - 1.6, 0.4, 1.4, 1.4),
         item("side-right", "side_table", bx + bedW + 0.2, 0.4, 1.4, 1.4),
@@ -109,20 +110,24 @@ export function defaultFurniture(room: Pick<FloorPlanRoom, "category" | "lengthF
     case "living_room": {
       if (L < 8 || W < 7) return [];
       const sofaLen = Math.min(7, W - 2);
+      const rugH = Math.min(6, W - 1);
       return [
+        item("rug", "rug", 1.2, (W - rugH) / 2, Math.min(6, L - 2.8), rugH),
         item("sofa", "sofa", 0.3, (W - sofaLen) / 2, sofaLen, 2.8, 270),
         item("coffee-table", "coffee_table", 4, W / 2 - 1.5, 3, 2.2, 90),
         item("tv-unit", "tv_unit", L - 1.5, W / 2 - 2.5, 5, 1.2, 90),
+        ...(W >= 8.5 ? [item("plant", "plant", L - 1.5, 0.3, 1.2, 1.2)] : []),
       ];
     }
     case "dining_room": {
       if (Math.min(L, W) < 6.2) return [];
+      const plant = Math.min(L, W) >= 8 ? [item("plant", "plant", 0.3, 0.3, 1.2, 1.2)] : [];
       if (L >= W) {
         const tl = Math.min(6, L - 2.5);
-        return [item("dining", "dining_set", (L - tl) / 2, (W - 5.8) / 2, tl, 5.8)];
+        return [item("dining", "dining_set", (L - tl) / 2, (W - 5.8) / 2, tl, 5.8), ...plant];
       }
       const tl = Math.min(6, W - 2.5);
-      return [item("dining", "dining_set", (L - 5.8) / 2, (W - tl) / 2, tl, 5.8, 90)];
+      return [item("dining", "dining_set", (L - 5.8) / 2, (W - tl) / 2, tl, 5.8, 90), ...plant];
     }
     case "kitchen": {
       if (L < 6 || W < 5) return [];
@@ -143,6 +148,47 @@ export function defaultFurniture(room: Pick<FloorPlanRoom, "category" | "lengthF
     default:
       return [];
   }
+}
+
+type Rect = { x: number; y: number; w: number; h: number };
+
+/** A furniture item's bounding box on the plan (world feet), after the room's rotation. */
+function itemPlanRect(room: FloorPlanRoom, item: FurnitureItem): Rect {
+  const f = footprint(item);
+  const L = room.lengthFt;
+  const W = room.widthFt;
+  switch (room.rotation) {
+    case 90:
+      return { x: room.x + W - (item.y + f.h), y: room.y + item.x, w: f.h, h: f.w };
+    case 180:
+      return { x: room.x + L - (item.x + f.w), y: room.y + W - (item.y + f.h), w: f.w, h: f.h };
+    case 270:
+      return { x: room.x + item.y, y: room.y + L - (item.x + f.w), w: f.h, h: f.w };
+    default:
+      return { x: room.x + item.x, y: room.y + item.y, w: f.w, h: f.h };
+  }
+}
+
+/**
+ * Centre point for a room's name + size label: the spot nearest the room's centre
+ * whose label box doesn't sit on furniture (rugs don't count), else the centre.
+ */
+export function labelAnchor(room: FloorPlanRoom, labelW: number, labelH: number): { x: number; y: number } {
+  const { w, h } = footprint(room);
+  const blockers = room.furniture.filter((f) => f.type !== "rug").map((f) => itemPlanRect(room, f));
+  const fractions = [0.5, 0.4, 0.6, 0.3, 0.7, 0.2, 0.8];
+  const candidates = fractions
+    .flatMap((fy) => fractions.map((fx) => ({ fx, fy })))
+    .sort((a, b) => Math.hypot(a.fx - 0.5, a.fy - 0.5) - Math.hypot(b.fx - 0.5, b.fy - 0.5));
+  for (const { fx, fy } of candidates) {
+    const cx = room.x + w * fx;
+    const cy = room.y + h * fy;
+    const box = { x: cx - labelW / 2, y: cy - labelH / 2, w: labelW, h: labelH };
+    const inside = box.x >= room.x + 0.2 && box.y >= room.y + 0.2 && box.x + box.w <= room.x + w - 0.2 && box.y + box.h <= room.y + h - 0.2;
+    const clear = blockers.every((r) => box.x >= r.x + r.w || r.x >= box.x + box.w || box.y >= r.y + r.h || r.y >= box.y + box.h);
+    if (inside && clear) return { x: cx, y: cy };
+  }
+  return { x: room.x + w / 2, y: room.y + h / 2 };
 }
 
 export const WALLS = ["top", "right", "bottom", "left"] as const;
