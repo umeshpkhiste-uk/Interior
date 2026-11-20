@@ -2548,6 +2548,7 @@ export type Database = {
           net_wall_area: number | null
           organization_id: string
           plan_furniture: Json | null
+          plan_open_walls: string[]
           plan_rotation: number
           plan_x: number | null
           plan_y: number | null
@@ -2572,6 +2573,7 @@ export type Database = {
           net_wall_area?: number | null
           organization_id: string
           plan_furniture?: Json | null
+          plan_open_walls?: string[]
           plan_rotation?: number
           plan_x?: number | null
           plan_y?: number | null
@@ -2596,6 +2598,7 @@ export type Database = {
           net_wall_area?: number | null
           organization_id?: string
           plan_furniture?: Json | null
+          plan_open_walls?: string[]
           plan_rotation?: number
           plan_x?: number | null
           plan_y?: number | null
@@ -2693,6 +2696,7 @@ export type Database = {
           id: string
           name: string
           organization_id: string
+          plan_passage: Json | null
           project_code: string
           property_address: string | null
           property_type: Database["public"]["Enums"]["property_type"] | null
@@ -2714,6 +2718,7 @@ export type Database = {
           id?: string
           name: string
           organization_id: string
+          plan_passage?: Json | null
           project_code: string
           property_address?: string | null
           property_type?: Database["public"]["Enums"]["property_type"] | null
@@ -2735,6 +2740,7 @@ export type Database = {
           id?: string
           name?: string
           organization_id?: string
+          plan_passage?: Json | null
           project_code?: string
           property_address?: string | null
           property_type?: Database["public"]["Enums"]["property_type"] | null
@@ -4016,6 +4022,12 @@ export type Database = {
         | "utility"
         | "passage"
         | "other"
+        | "lobby"
+        | "drawing_room"
+        | "garage"
+        | "staircase"
+        | "porch"
+        | "store_room"
       shutter_type: "hinged" | "sliding" | "open"
       unit_system: "feet_inches" | "metric"
       vendor_payment_mode: "cash" | "upi" | "bank_transfer" | "cheque" | "other"
@@ -4349,6 +4361,12 @@ export const Constants = {
         "utility",
         "passage",
         "other",
+        "lobby",
+        "drawing_room",
+        "garage",
+        "staircase",
+        "porch",
+        "store_room",
       ],
       shutter_type: ["hinged", "sliding", "open"],
       unit_system: ["feet_inches", "metric"],

@@ -1,5 +1,5 @@
 import type { Database } from "@/lib/supabase/types";
-import { FURNITURE_SIZES, type FurnitureItem, type FurnitureType } from "@/lib/validations/floor-plan";
+import { FURNITURE_SIZES, PLAN_WALLS, type FurnitureItem, type FurnitureType } from "@/lib/validations/floor-plan";
 
 export type PlanRotation = 0 | 90 | 180 | 270;
 
@@ -22,6 +22,8 @@ export type FloorPlanRoom = {
   windowWidthsFt: number[];
   /** In the room's local frame (feet from its own top-left, before the room's rotation). */
   furniture: FurnitureItem[];
+  /** Own-frame sides drawn without a wall. */
+  openWalls: Wall[];
 };
 
 /** Bounding box of anything with an own size and a quarter-turn rotation. */
@@ -141,6 +143,29 @@ export function defaultFurniture(room: Pick<FloorPlanRoom, "category" | "lengthF
       if (L < 3.5 || W < 4) return [];
       return [item("wc", "wc", 0.4, 0.3, 1.6, 2.5), item("basin", "basin", L - 1.9, 0.3, 1.6, 1.2)];
     }
+    case "garage": {
+      if (W < 15 || L < 7) return [];
+      const cars = Math.min(3, Math.floor((L - 1) / 8));
+      const gap = (L - cars * 6) / (cars + 1);
+      return Array.from({ length: Math.max(1, cars) }, (_, i) =>
+        item(`car-${i + 1}`, "car", gap + i * (6 + gap), (W - 14.5) / 2, 6, 14.5)
+      );
+    }
+    case "staircase": {
+      if (L < 3 || W < 6) return [];
+      return [item("stairs", "stairs", 0.2, 0.2, Math.min(L - 0.4, 4), W - 0.4)];
+    }
+    case "drawing_room": {
+      if (L < 8 || W < 7) return [];
+      const sofaLen = Math.min(7, W - 2);
+      const rugH = Math.min(6, W - 1);
+      return [
+        item("rug", "rug", 1.2, (W - rugH) / 2, Math.min(6, L - 2.8), rugH),
+        item("sofa", "sofa", 0.3, (W - sofaLen) / 2, sofaLen, 2.8, 270),
+        item("coffee-table", "coffee_table", 4, W / 2 - 1.5, 3, 2.2, 90),
+        ...(L >= 11 ? [item("armchair", "armchair", L - 3, W / 2 - 1.3, 2.6, 2.6, 90)] : []),
+      ];
+    }
     case "utility": {
       if (L < 4 || W < 3) return [];
       return [item("washer-1", "washer", 0.3, 0.3, 2.2, 2.2), ...(L >= 5.5 ? [item("washer-2", "washer", 2.7, 0.3, 2.2, 2.2)] : [])];
@@ -191,8 +216,88 @@ export function labelAnchor(room: FloorPlanRoom, labelW: number, labelH: number)
   return { x: room.x + w / 2, y: room.y + h / 2 };
 }
 
-export const WALLS = ["top", "right", "bottom", "left"] as const;
+export const WALLS = PLAN_WALLS;
 export type Wall = (typeof WALLS)[number];
+
+/** Own-frame wall → the side of the plan it faces after the room's rotation. */
+export function toPlanSide(wall: Wall, rotation: PlanRotation): Wall {
+  return WALLS[(WALLS.indexOf(wall) + rotation / 90) % 4];
+}
+
+export function toOwnWall(side: Wall, rotation: PlanRotation): Wall {
+  return WALLS[(WALLS.indexOf(side) - rotation / 90 + 4) % 4];
+}
+
+export type WallSegment = { x1: number; y1: number; x2: number; y2: number };
+
+const WALL_TOLERANCE_FT = 0.1;
+
+function sideLine(r: Rect, side: Wall) {
+  switch (side) {
+    case "top":
+      return { horizontal: true, at: r.y, from: r.x, to: r.x + r.w };
+    case "bottom":
+      return { horizontal: true, at: r.y + r.h, from: r.x, to: r.x + r.w };
+    case "left":
+      return { horizontal: false, at: r.x, from: r.y, to: r.y + r.h };
+    case "right":
+      return { horizontal: false, at: r.x + r.w, from: r.y, to: r.y + r.h };
+  }
+}
+
+function subtract(spans: [number, number][], cut: [number, number]): [number, number][] {
+  return spans.flatMap(([a, b]) => {
+    const [c, d] = cut;
+    if (d <= a || c >= b) return [[a, b]];
+    const out: [number, number][] = [];
+    if (c > a) out.push([a, c]);
+    if (d < b) out.push([d, b]);
+    return out;
+  });
+}
+
+/**
+ * The walls actually drawn on the plan. A wall is left out where its side is marked
+ * open, where it runs through another room (rooms dragged over each other merge into
+ * one space), and where it lines up with a neighbouring room's open side.
+ */
+export function wallSegments(rooms: FloorPlanRoom[]): WallSegment[] {
+  const rects = rooms.map((room) => ({
+    room,
+    rect: { x: room.x, y: room.y, ...footprint(room) },
+    openSides: new Set(room.openWalls.map((w) => toPlanSide(w, room.rotation))),
+  }));
+  const segments: WallSegment[] = [];
+
+  for (const a of rects) {
+    for (const side of WALLS) {
+      if (a.openSides.has(side)) continue;
+      const line = sideLine(a.rect, side);
+      let spans: [number, number][] = [[line.from, line.to]];
+
+      for (const b of rects) {
+        if (b === a) continue;
+        const r = b.rect;
+        const [lo, hi] = line.horizontal ? [r.y, r.y + r.h] : [r.x, r.x + r.w];
+        const span: [number, number] = line.horizontal ? [r.x, r.x + r.w] : [r.y, r.y + r.h];
+        const throughInterior = line.at > lo + WALL_TOLERANCE_FT && line.at < hi - WALL_TOLERANCE_FT;
+        const onOpenNeighbourSide = (WALLS.filter((s) => b.openSides.has(s)) as Wall[]).some((s) => {
+          const other = sideLine(r, s);
+          return other.horizontal === line.horizontal && Math.abs(other.at - line.at) < WALL_TOLERANCE_FT;
+        });
+        if (throughInterior || onOpenNeighbourSide) spans = subtract(spans, span);
+      }
+
+      for (const [from, to] of spans) {
+        if (to - from < 0.05) continue;
+        segments.push(
+          line.horizontal ? { x1: from, y1: line.at, x2: to, y2: line.at } : { x1: line.at, y1: from, x2: line.at, y2: to }
+        );
+      }
+    }
+  }
+  return segments;
+}
 
 /**
  * Which of a room's own (local, pre-rotation) walls are shared with another room
@@ -219,25 +324,4 @@ export function sharedWalls(room: FloorPlanRoom, rooms: FloorPlanRoom[]): Set<Wa
     }
   }
   return shared;
-}
-
-const OVERLAP_TOLERANCE_FT = 0.05;
-
-export function overlappingRoomIds(rooms: FloorPlanRoom[]): Set<string> {
-  const ids = new Set<string>();
-  for (let i = 0; i < rooms.length; i++) {
-    const a = rooms[i];
-    const fa = footprint(a);
-    for (let j = i + 1; j < rooms.length; j++) {
-      const b = rooms[j];
-      const fb = footprint(b);
-      const overlapX = Math.min(a.x + fa.w, b.x + fb.w) - Math.max(a.x, b.x);
-      const overlapY = Math.min(a.y + fa.h, b.y + fb.h) - Math.max(a.y, b.y);
-      if (overlapX > OVERLAP_TOLERANCE_FT && overlapY > OVERLAP_TOLERANCE_FT) {
-        ids.add(a.id);
-        ids.add(b.id);
-      }
-    }
-  }
-  return ids;
 }

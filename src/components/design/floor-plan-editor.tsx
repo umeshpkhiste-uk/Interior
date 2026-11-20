@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState, useTransition, type PointerEvent as ReactPointerEvent, type KeyboardEvent } from "react";
 import { useRouter } from "next/navigation";
-import { RotateCw, Save, Undo2, LayoutGrid, AlertTriangle, Trash2 } from "lucide-react";
+import { RotateCw, Save, Undo2, LayoutGrid, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,20 +12,31 @@ import {
   formatFeetInches,
   labelAnchor,
   newFurnitureItem,
-  overlappingRoomIds,
   rotationTransform,
   sharedWalls,
   toLocalDelta,
+  toOwnWall,
+  wallSegments,
+  WALLS,
   type FloorPlanRoom,
   type PlanRotation,
+  type Wall,
 } from "@/lib/calculations/floor-plan";
 import { toStandardFeet } from "@/lib/calculations/area";
-import { FURNITURE_LABELS, FURNITURE_TYPES, type FurnitureItem, type FurnitureType } from "@/lib/validations/floor-plan";
+import {
+  FURNITURE_LABELS,
+  FURNITURE_TYPES,
+  type FurnitureItem,
+  type FurnitureType,
+  type PlanPassage,
+} from "@/lib/validations/floor-plan";
 import { saveFloorPlanLayout, resetFloorPlanLayout } from "@/lib/actions/floor-plan";
 import {
   DimensionLine,
   FLOOR_FILL,
   FurnitureShape,
+  HEDGE_FT,
+  PassageArea,
   PlanDefs,
   RoomOpenings,
   WALL_COLOR,
@@ -55,8 +66,17 @@ function boundsOf(rooms: FloorPlanRoom[]) {
   return { minX, minY, maxX, maxY };
 }
 
-function frameFor(rooms: FloorPlanRoom[]) {
+/** Building plus its outside passage (the plot) and, beyond that, the hedge border. */
+function plotBounds(rooms: FloorPlanRoom[], passage: PlanPassage) {
   const b = boundsOf(rooms);
+  const plot = { minX: b.minX - passage.left, minY: b.minY - passage.top, maxX: b.maxX + passage.right, maxY: b.maxY + passage.bottom };
+  const hedge = (side: keyof PlanPassage) => (passage[side] > 0 ? HEDGE_FT : 0);
+  const outer = { minX: plot.minX - hedge("left"), minY: plot.minY - hedge("top"), maxX: plot.maxX + hedge("right"), maxY: plot.maxY + hedge("bottom") };
+  return { building: b, plot, outer };
+}
+
+function frameFor(rooms: FloorPlanRoom[], passage: PlanPassage) {
+  const b = plotBounds(rooms, passage).outer;
   return {
     x: b.minX - PAD.left,
     y: b.minY - PAD.top,
@@ -91,22 +111,25 @@ export function FloorPlanEditor({
   projectId,
   projectName,
   initialRooms,
+  initialPassage,
 }: {
   projectId: string;
   projectName: string;
   initialRooms: FloorPlanRoom[];
+  initialPassage: PlanPassage;
 }) {
   const router = useRouter();
   const svgRef = useRef<SVGSVGElement>(null);
   const [rooms, setRooms] = useState(initialRooms);
-  const [frame, setFrame] = useState(() => frameFor(initialRooms));
+  const [passage, setPassage] = useState(initialPassage);
+  const [frame, setFrame] = useState(() => frameFor(initialRooms, initialPassage));
   const [selection, setSelection] = useState<Selection>(null);
   const [drag, setDrag] = useState<Drag | null>(null);
   const [dirty, setDirty] = useState(false);
   const [resetCount, setResetCount] = useState(0);
   const [pending, startTransition] = useTransition();
 
-  const overlapping = useMemo(() => overlappingRoomIds(rooms), [rooms]);
+  const walls = useMemo(() => wallSegments(rooms), [rooms]);
   const sharedWallsByRoom = useMemo(() => new Map(rooms.map((r) => [r.id, sharedWalls(r, rooms)])), [rooms]);
   const selectedRoom = selection ? rooms.find((r) => r.id === selection.roomId) ?? null : null;
   const selectedItem =
@@ -114,7 +137,7 @@ export function FloorPlanEditor({
 
   function commit(next: FloorPlanRoom[], refit = false) {
     setRooms(next);
-    if (refit) setFrame(frameFor(next));
+    if (refit) setFrame(frameFor(next, passage));
     setDirty(true);
   }
 
@@ -171,7 +194,7 @@ export function FloorPlanEditor({
   function endDrag(e: ReactPointerEvent) {
     if (!drag || e.pointerId !== drag.pointerId) return;
     setDrag(null);
-    setFrame(frameFor(rooms));
+    setFrame(frameFor(rooms, passage));
   }
 
   function rotateSelection() {
@@ -208,6 +231,21 @@ export function FloorPlanEditor({
       },
       true
     );
+  }
+
+  function toggleOpenSide(side: Wall) {
+    if (!selectedRoom) return;
+    const own = toOwnWall(side, selectedRoom.rotation);
+    patchRoom(selectedRoom.id, (r) => ({
+      openWalls: r.openWalls.includes(own) ? r.openWalls.filter((w) => w !== own) : [...r.openWalls, own],
+    }));
+  }
+
+  function changePassage(side: keyof PlanPassage, feet: number) {
+    const next = { ...passage, [side]: feet };
+    setPassage(next);
+    setFrame(frameFor(rooms, next));
+    setDirty(true);
   }
 
   function addFurniture(type: FurnitureType) {
@@ -263,7 +301,8 @@ export function FloorPlanEditor({
 
   function discardChanges() {
     setRooms(initialRooms);
-    setFrame(frameFor(initialRooms));
+    setPassage(initialPassage);
+    setFrame(frameFor(initialRooms, initialPassage));
     setDirty(false);
     setResetCount((n) => n + 1);
   }
@@ -273,9 +312,9 @@ export function FloorPlanEditor({
     const minY = Math.min(...rooms.map((r) => r.y));
     const initialById = new Map(initialRooms.map((r) => [r.id, r]));
     startTransition(async () => {
-      const result = await saveFloorPlanLayout(
-        projectId,
-        rooms.map((r) => {
+      const result = await saveFloorPlanLayout(projectId, {
+        passage,
+        rooms: rooms.map((r) => {
           const before = initialById.get(r.id);
           const resized = before && (before.length !== r.length || before.width !== r.width);
           return {
@@ -283,11 +322,12 @@ export function FloorPlanEditor({
             x: r.x - minX,
             y: r.y - minY,
             rotation: r.rotation,
+            openWalls: r.openWalls,
             furniture: r.furniture,
             ...(resized ? { size: { length: r.length, width: r.width } } : {}),
           };
-        })
-      );
+        }),
+      });
       if (result.error) {
         toast.error(result.error);
         return;
@@ -328,11 +368,6 @@ export function FloorPlanEditor({
           <LayoutGrid className="size-4" /> Auto-arrange
         </Button>
         {dirty && !pending && <span className="text-xs font-medium text-amber-700">Unsaved changes</span>}
-        {overlapping.size > 0 && (
-          <span className="flex items-center gap-1.5 text-xs text-destructive">
-            <AlertTriangle className="size-3.5" /> Some rooms overlap (shown in red) — drag them apart.
-          </span>
-        )}
       </div>
 
       <SelectionPanel
@@ -345,6 +380,9 @@ export function FloorPlanEditor({
         onAddFurniture={addFurniture}
         onDeleteItem={deleteSelectedItem}
         onCounterShape={setCounterShape}
+        onToggleOpenSide={toggleOpenSide}
+        passage={passage}
+        onPassageChange={changePassage}
       />
 
       <div className="overflow-hidden rounded-lg border" style={{ background: PAPER }}>
@@ -363,12 +401,12 @@ export function FloorPlanEditor({
         >
           <PlanDefs />
           <rect x={frame.x} y={frame.y} width={frame.w} height={frame.h} fill={PAPER} />
-          <PlanTitle rooms={rooms} projectName={projectName} />
+          <PassageArea bounds={boundsOf(rooms)} passage={passage} />
+          <PlanTitle rooms={rooms} passage={passage} projectName={projectName} />
 
           {rooms.map((room) => {
             const { w, h } = footprint(room);
             const roomSelected = selection?.kind === "room" && selection.roomId === room.id;
-            const tint = overlapping.has(room.id) ? "#ef444440" : roomSelected ? "#f59e0b26" : null;
             return (
               <g key={`floor-${room.id}`} transform={`translate(${room.x} ${room.y})`}>
                 <rect
@@ -379,55 +417,47 @@ export function FloorPlanEditor({
                   className={drag?.roomId === room.id && !drag.itemId ? "cursor-grabbing" : "cursor-grab"}
                   style={{ touchAction: "none" }}
                 />
-                {tint && <rect width={w} height={h} fill={tint} pointerEvents="none" />}
-                <g transform={localTransform(room)}>
-                  {drawOrder(room.furniture).map((item) => {
-                    const itemSelected = selection?.kind === "item" && selection.itemId === item.id;
-                    return (
-                      <g
-                        key={item.id}
-                        transform={`translate(${item.x} ${item.y}) ${rotationTransform(item.w, item.h, item.rotation)}`}
-                        onPointerDown={(e) => startDrag(e, room.id, item.id, item.x, item.y)}
-                        className="cursor-move"
-                        style={{ touchAction: "none" }}
-                      >
-                        <FurnitureShape item={item} />
-                        {itemSelected && (
-                          <rect
-                            x={-0.12}
-                            y={-0.12}
-                            width={item.w + 0.24}
-                            height={item.h + 0.24}
-                            fill="none"
-                            stroke={SELECT_COLOR}
-                            strokeWidth={0.05}
-                            strokeDasharray="0.25 0.15"
-                          />
-                        )}
-                      </g>
-                    );
-                  })}
-                </g>
+                {roomSelected && <rect width={w} height={h} fill="#f59e0b26" pointerEvents="none" />}
               </g>
             );
           })}
 
-          {rooms.map((room) => {
-            const { w, h } = footprint(room);
-            return (
-              <rect
-                key={`wall-${room.id}`}
-                x={room.x}
-                y={room.y}
-                width={w}
-                height={h}
-                fill="none"
-                stroke={WALL_COLOR}
-                strokeWidth={WALL_FT}
-                pointerEvents="none"
-              />
-            );
-          })}
+          {rooms.map((room) => (
+            <g key={`furniture-${room.id}`} transform={`translate(${room.x} ${room.y}) ${localTransform(room)}`}>
+              {drawOrder(room.furniture).map((item) => {
+                const itemSelected = selection?.kind === "item" && selection.itemId === item.id;
+                return (
+                  <g
+                    key={item.id}
+                    transform={`translate(${item.x} ${item.y}) ${rotationTransform(item.w, item.h, item.rotation)}`}
+                    onPointerDown={(e) => startDrag(e, room.id, item.id, item.x, item.y)}
+                    className="cursor-move"
+                    style={{ touchAction: "none" }}
+                  >
+                    <FurnitureShape item={item} />
+                    {itemSelected && (
+                      <rect
+                        x={-0.12}
+                        y={-0.12}
+                        width={item.w + 0.24}
+                        height={item.h + 0.24}
+                        fill="none"
+                        stroke={SELECT_COLOR}
+                        strokeWidth={0.05}
+                        strokeDasharray="0.25 0.15"
+                      />
+                    )}
+                  </g>
+                );
+              })}
+            </g>
+          ))}
+
+          <g pointerEvents="none" stroke={WALL_COLOR} strokeWidth={WALL_FT} strokeLinecap="square">
+            {walls.map((seg, i) => (
+              <line key={i} x1={seg.x1} y1={seg.y1} x2={seg.x2} y2={seg.y2} />
+            ))}
+          </g>
 
           {rooms.map((room) => (
             <g key={`open-${room.id}`} transform={`translate(${room.x} ${room.y}) ${localTransform(room)}`} pointerEvents="none">
@@ -474,19 +504,19 @@ export function FloorPlanEditor({
 }
 
 /** Title, overall plot size and the overall width/depth dimension lines around the plan. */
-function PlanTitle({ rooms, projectName }: { rooms: FloorPlanRoom[]; projectName: string }) {
-  const b = boundsOf(rooms);
+function PlanTitle({ rooms, passage, projectName }: { rooms: FloorPlanRoom[]; passage: PlanPassage; projectName: string }) {
+  const { plot: b, outer } = plotBounds(rooms, passage);
   const width = formatFeetInches(b.maxX - b.minX);
   const depth = formatFeetInches(b.maxY - b.minY);
   const cx = (b.minX + b.maxX) / 2;
-  const dimY = b.minY - 1.4;
-  const dimX = b.minX - 1.6;
+  const dimY = outer.minY - 1.4;
+  const dimX = outer.minX - 1.6;
   return (
     <g pointerEvents="none" fontFamily="Arial, Helvetica, sans-serif" textAnchor="middle">
-      <text x={cx} y={b.minY - 3.9} fontSize={0.85} fontWeight={800} fill="#1f1f1f" letterSpacing={0.03}>
+      <text x={cx} y={outer.minY - 3.9} fontSize={0.85} fontWeight={800} fill="#1f1f1f" letterSpacing={0.03}>
         {projectName.toUpperCase()} — FLOOR PLAN
       </text>
-      <text x={cx} y={b.minY - 3.0} fontSize={0.55} fill="#4a4a4a" letterSpacing={0.03}>
+      <text x={cx} y={outer.minY - 3.0} fontSize={0.55} fill="#4a4a4a" letterSpacing={0.03}>
         PLOT SIZE: {width.replace(/-0"$/, "")} x {depth.replace(/-0"$/, "")}
       </text>
       <DimensionLine x1={b.minX} y1={dimY} x2={b.maxX} y2={dimY} label={width} />
@@ -494,6 +524,9 @@ function PlanTitle({ rooms, projectName }: { rooms: FloorPlanRoom[]; projectName
     </g>
   );
 }
+
+const PANEL = "flex min-h-[7rem] flex-col justify-center gap-2 rounded-lg border px-3 py-2";
+const SIDE_LABELS: Record<Wall, string> = { top: "Top", right: "Right", bottom: "Bottom", left: "Left" };
 
 function SelectionPanel({
   room,
@@ -504,6 +537,9 @@ function SelectionPanel({
   onAddFurniture,
   onDeleteItem,
   onCounterShape,
+  onToggleOpenSide,
+  passage,
+  onPassageChange,
 }: {
   room: FloorPlanRoom | null;
   item: FurnitureItem | null;
@@ -513,12 +549,31 @@ function SelectionPanel({
   onAddFurniture: (type: FurnitureType) => void;
   onDeleteItem: () => void;
   onCounterShape: (shape: "counter_l" | "counter_straight") => void;
+  onToggleOpenSide: (side: Wall) => void;
+  passage: PlanPassage;
+  onPassageChange: (side: keyof PlanPassage, feet: number) => void;
 }) {
   if (!room) {
     return (
-      <div className="flex min-h-[4.5rem] items-center rounded-lg border border-dashed px-3 py-2 text-xs text-muted-foreground">
-        Click a room to move it or change its size. Click a piece of furniture (bed, wardrobe, kitchen platform…) to move,
-        rotate or remove it. Keyboard: arrows nudge (Shift = 1 ft), R rotates, Delete removes furniture.
+      <div className={`${PANEL} border-dashed text-xs text-muted-foreground`}>
+        <p>
+          Click a room to move or resize it, or to open its walls. Drag rooms onto each other to join them — the wall between
+          them disappears. Click furniture to move, rotate or remove it. Keys: arrows nudge (Shift = 1 ft), R rotates, Delete
+          removes furniture.
+        </p>
+        <div className="flex flex-wrap items-end gap-3">
+          <span className="pb-2 text-sm font-medium text-foreground">Outside passage (ft)</span>
+          {WALLS.map((side) => (
+            <DimensionInput
+              key={side}
+              label={SIDE_LABELS[side]}
+              value={passage[side]}
+              allowZero
+              onCommit={(v) => onPassageChange(side, v)}
+              disabled={disabled}
+            />
+          ))}
+        </div>
       </div>
     );
   }
@@ -526,36 +581,38 @@ function SelectionPanel({
   if (item) {
     const isCounter = item.type === "counter_l" || item.type === "counter_straight";
     return (
-      <div className="flex min-h-[4.5rem] flex-wrap items-center gap-2 rounded-lg border bg-muted/30 px-3 py-2">
-        <span className="text-sm font-medium">{FURNITURE_LABELS[item.type]}</span>
-        <span className="text-xs text-muted-foreground">in {room.name} — drag to move</span>
-        <div className="ml-auto flex flex-wrap items-center gap-2">
-          {isCounter && (
-            <div className="flex items-center gap-1 rounded-md border bg-background p-0.5">
-              <Button
-                size="xs"
-                variant={item.type === "counter_l" ? "secondary" : "ghost"}
-                onClick={() => onCounterShape("counter_l")}
-                disabled={disabled}
-              >
-                L-shape
-              </Button>
-              <Button
-                size="xs"
-                variant={item.type === "counter_straight" ? "secondary" : "ghost"}
-                onClick={() => onCounterShape("counter_straight")}
-                disabled={disabled}
-              >
-                Straight
-              </Button>
-            </div>
-          )}
-          <Button size="sm" variant="outline" onClick={onRotate} disabled={disabled}>
-            <RotateCw className="size-4" /> Rotate
-          </Button>
-          <Button size="sm" variant="outline" onClick={onDeleteItem} disabled={disabled}>
-            <Trash2 className="size-4" /> Remove
-          </Button>
+      <div className={`${PANEL} bg-muted/30`}>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm font-medium">{FURNITURE_LABELS[item.type]}</span>
+          <span className="text-xs text-muted-foreground">in {room.name} — drag to move</span>
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            {isCounter && (
+              <div className="flex items-center gap-1 rounded-md border bg-background p-0.5">
+                <Button
+                  size="xs"
+                  variant={item.type === "counter_l" ? "secondary" : "ghost"}
+                  onClick={() => onCounterShape("counter_l")}
+                  disabled={disabled}
+                >
+                  L-shape
+                </Button>
+                <Button
+                  size="xs"
+                  variant={item.type === "counter_straight" ? "secondary" : "ghost"}
+                  onClick={() => onCounterShape("counter_straight")}
+                  disabled={disabled}
+                >
+                  Straight
+                </Button>
+              </div>
+            )}
+            <Button size="sm" variant="outline" onClick={onRotate} disabled={disabled}>
+              <RotateCw className="size-4" /> Rotate
+            </Button>
+            <Button size="sm" variant="outline" onClick={onDeleteItem} disabled={disabled}>
+              <Trash2 className="size-4" /> Remove
+            </Button>
+          </div>
         </div>
       </div>
     );
@@ -563,35 +620,56 @@ function SelectionPanel({
 
   const unit = room.unitSystem === "metric" ? "m" : "ft";
   return (
-    <div className="flex min-h-[4.5rem] flex-wrap items-end gap-3 rounded-lg border bg-muted/30 px-3 py-2">
-      <div className="flex flex-col">
-        <span className="text-sm font-medium">{room.name}</span>
-        <span className="text-xs text-muted-foreground">
-          {formatFeetInches(room.lengthFt)} x {formatFeetInches(room.widthFt)} — drag to move
-        </span>
+    <div className={`${PANEL} bg-muted/30`}>
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="flex flex-col">
+          <span className="text-sm font-medium">{room.name}</span>
+          <span className="text-xs text-muted-foreground">
+            {formatFeetInches(room.lengthFt)} x {formatFeetInches(room.widthFt)} — drag to move
+          </span>
+        </div>
+        <DimensionInput label={`Length (${unit})`} value={room.length} onCommit={(v) => onResize(room.id, "length", v)} disabled={disabled} />
+        <DimensionInput label={`Width (${unit})`} value={room.width} onCommit={(v) => onResize(room.id, "width", v)} disabled={disabled} />
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          <select
+            aria-label="Add furniture"
+            className="h-8 rounded-md border bg-background px-2 text-sm"
+            value=""
+            disabled={disabled}
+            onChange={(e) => {
+              if (e.target.value) onAddFurniture(e.target.value as FurnitureType);
+            }}
+          >
+            <option value="">+ Add furniture…</option>
+            {FURNITURE_TYPES.map((t) => (
+              <option key={t} value={t}>
+                {FURNITURE_LABELS[t]}
+              </option>
+            ))}
+          </select>
+          <Button size="sm" variant="outline" onClick={onRotate} disabled={disabled}>
+            <RotateCw className="size-4" /> Rotate room
+          </Button>
+        </div>
       </div>
-      <DimensionInput label={`Length (${unit})`} value={room.length} onCommit={(v) => onResize(room.id, "length", v)} disabled={disabled} />
-      <DimensionInput label={`Width (${unit})`} value={room.width} onCommit={(v) => onResize(room.id, "width", v)} disabled={disabled} />
-      <div className="ml-auto flex flex-wrap items-center gap-2">
-        <select
-          aria-label="Add furniture"
-          className="h-8 rounded-md border bg-background px-2 text-sm"
-          value=""
-          disabled={disabled}
-          onChange={(e) => {
-            if (e.target.value) onAddFurniture(e.target.value as FurnitureType);
-          }}
-        >
-          <option value="">+ Add furniture…</option>
-          {FURNITURE_TYPES.map((t) => (
-            <option key={t} value={t}>
-              {FURNITURE_LABELS[t]}
-            </option>
-          ))}
-        </select>
-        <Button size="sm" variant="outline" onClick={onRotate} disabled={disabled}>
-          <RotateCw className="size-4" /> Rotate room
-        </Button>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs text-muted-foreground">Open sides (no wall):</span>
+        {WALLS.map((side) => {
+          const open = room.openWalls.includes(toOwnWall(side, room.rotation));
+          return (
+            <Button
+              key={side}
+              size="xs"
+              variant={open ? "secondary" : "outline"}
+              aria-pressed={open}
+              onClick={() => onToggleOpenSide(side)}
+              disabled={disabled}
+            >
+              {SIDE_LABELS[side]}
+              {open ? " · open" : ""}
+            </Button>
+          );
+        })}
       </div>
     </div>
   );
@@ -602,11 +680,13 @@ function DimensionInput({
   value,
   onCommit,
   disabled,
+  allowZero = false,
 }: {
   label: string;
   value: number;
   onCommit: (value: number) => void;
   disabled: boolean;
+  allowZero?: boolean;
 }) {
   const [text, setText] = useState(String(value));
   return (
@@ -615,15 +695,15 @@ function DimensionInput({
       <Input
         type="number"
         inputMode="decimal"
-        min={0.1}
+        min={allowZero ? 0 : 0.1}
         step={0.25}
-        className="h-8 w-24"
+        className="h-8 w-20"
         value={text}
         disabled={disabled}
         onChange={(e) => {
           setText(e.target.value);
           const n = Number(e.target.value);
-          if (e.target.value !== "" && Number.isFinite(n) && n > 0 && n <= 200) onCommit(n);
+          if (e.target.value !== "" && Number.isFinite(n) && (allowZero ? n >= 0 : n > 0) && n <= (allowZero ? 50 : 200)) onCommit(n);
         }}
         onBlur={() => setText(String(value))}
       />

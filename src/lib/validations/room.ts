@@ -3,6 +3,7 @@ import { z } from "zod";
 export const ROOM_CATEGORIES = [
   "living_room", "dining_room", "master_bedroom", "bedroom_2", "bedroom_3",
   "kitchen", "bathroom", "balcony", "utility", "passage", "other",
+  "lobby", "drawing_room", "garage", "staircase", "porch", "store_room",
 ] as const;
 
 export const ROOM_CATEGORY_LABELS: Record<(typeof ROOM_CATEGORIES)[number], string> = {
@@ -17,6 +18,12 @@ export const ROOM_CATEGORY_LABELS: Record<(typeof ROOM_CATEGORIES)[number], stri
   utility: "Utility",
   passage: "Passage",
   other: "Other",
+  lobby: "Lobby / Foyer",
+  drawing_room: "Drawing Room",
+  garage: "Garage / Parking",
+  staircase: "Staircase",
+  porch: "Porch / Sit-out",
+  store_room: "Store Room",
 };
 
 export const UNIT_SYSTEMS = ["feet_inches", "metric"] as const;

@@ -1,6 +1,7 @@
 import { listRoomsForProject } from "@/lib/data/rooms";
 import { clampItem, defaultFurniture, footprint, type FloorPlanRoom, type PlanRotation } from "@/lib/calculations/floor-plan";
-import { furnitureItemSchema } from "@/lib/validations/floor-plan";
+import { NO_PASSAGE, PLAN_WALLS, furnitureItemSchema, passageSchema, type PlanPassage } from "@/lib/validations/floor-plan";
+import { createClient } from "@/lib/supabase/server";
 
 export type MissingFloorPlanInput = {
   roomId: string | null;
@@ -11,18 +12,36 @@ export type MissingFloorPlanInput = {
 export type FloorPlanResult = {
   rooms: FloorPlanRoom[];
   missing: MissingFloorPlanInput[];
+  passage: PlanPassage;
 };
+
+async function getPlanPassage(organizationId: string, projectId: string): Promise<PlanPassage> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("projects")
+    .select("plan_passage")
+    .eq("organization_id", organizationId)
+    .eq("id", projectId)
+    .maybeSingle();
+  if (error) throw error;
+  const parsed = passageSchema.safeParse(data?.plan_passage);
+  return parsed.success ? parsed.data : NO_PASSAGE;
+}
 
 /**
  * Rooms keep the position saved from the 2D editor; any room not placed yet
  * (new, or never saved) is auto-arranged in rows beneath the placed ones.
  */
 export async function getFloorPlan(organizationId: string, projectId: string): Promise<FloorPlanResult> {
-  const rows = await listRoomsForProject(organizationId, projectId);
+  const [rows, passage] = await Promise.all([
+    listRoomsForProject(organizationId, projectId),
+    getPlanPassage(organizationId, projectId),
+  ]);
 
   if (rows.length === 0) {
     return {
       rooms: [],
+      passage,
       missing: [
         { roomId: null, message: "Add at least one room with its length and width.", href: `/projects/${projectId}?tab=rooms` },
       ],
@@ -69,13 +88,16 @@ export async function getFloorPlan(organizationId: string, projectId: string): P
       doorWidthsFt: widthsOf("door"),
       windowWidthsFt: widthsOf("window"),
       furniture,
+      openWalls: (row.plan_open_walls ?? []).filter((w): w is (typeof PLAN_WALLS)[number] =>
+        (PLAN_WALLS as readonly string[]).includes(w)
+      ),
     };
     if (row.plan_x != null && row.plan_y != null) placed.push(room);
     else unplaced.push(room);
   }
 
   const startY = placed.reduce((max, r) => Math.max(max, r.y + footprint(r).h), 0);
-  return { rooms: [...placed, ...packIntoRows(unplaced, startY)], missing };
+  return { rooms: [...placed, ...packIntoRows(unplaced, startY)], missing, passage };
 }
 
 function packIntoRows(rooms: FloorPlanRoom[], startY: number): FloorPlanRoom[] {

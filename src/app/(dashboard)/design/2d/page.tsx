@@ -73,10 +73,10 @@ async function ProjectFloorPlan({
   projectId: string;
   projectName: string;
 }) {
-  const { rooms, missing } = await getFloorPlan(organizationId, projectId);
+  const { rooms, missing, passage } = await getFloorPlan(organizationId, projectId);
   const totalAreaSqft = rooms.reduce((acc, r) => acc + r.lengthFt * r.widthFt, 0);
   // Remount the editor whenever the saved layout or room set changes, so it starts from the server's state.
-  const layoutKey = JSON.stringify(rooms);
+  const layoutKey = JSON.stringify({ rooms, passage });
 
   return (
     <div className="flex flex-col gap-4">
@@ -100,7 +100,7 @@ async function ProjectFloorPlan({
             <CardTitle className="text-sm font-medium">Floor plan</CardTitle>
           </CardHeader>
           <CardContent>
-            <FloorPlanEditor key={layoutKey} projectId={projectId} projectName={projectName} initialRooms={rooms} />
+            <FloorPlanEditor key={layoutKey} projectId={projectId} projectName={projectName} initialRooms={rooms} initialPassage={passage} />
           </CardContent>
         </Card>
       ) : (

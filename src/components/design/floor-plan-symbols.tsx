@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
-import { rotationTransform, type FloorPlanRoom, type Wall } from "@/lib/calculations/floor-plan";
-import type { FurnitureItem } from "@/lib/validations/floor-plan";
+import { formatFeetInches, rotationTransform, type FloorPlanRoom, type Wall } from "@/lib/calculations/floor-plan";
+import type { FurnitureItem, PlanPassage } from "@/lib/validations/floor-plan";
 
 export const WALL_FT = 0.32;
 export const WALL_COLOR = "#3b3b3b";
@@ -29,19 +29,25 @@ const C = {
   line: "#5a5048",
 };
 
-export type FloorKind = "wood" | "tile" | "wetTile" | "stone";
+export type FloorKind = "wood" | "tile" | "wetTile" | "stone" | "concrete" | "paver";
 
 export function floorKind(category: FloorPlanRoom["category"]): FloorKind {
   switch (category) {
     case "master_bedroom":
     case "bedroom_2":
     case "bedroom_3":
+    case "staircase":
       return "wood";
     case "bathroom":
     case "utility":
       return "wetTile";
     case "balcony":
+    case "porch":
       return "stone";
+    case "garage":
+      return "concrete";
+    case "passage":
+      return "paver";
     default:
       return "tile";
   }
@@ -52,6 +58,8 @@ export const FLOOR_FILL: Record<FloorKind, string> = {
   tile: "url(#floor-tile)",
   wetTile: "url(#floor-wet)",
   stone: "url(#floor-stone)",
+  concrete: "url(#floor-concrete)",
+  paver: "url(#floor-paver)",
 };
 
 const FLOOR_BASE: Record<FloorKind, string> = {
@@ -59,6 +67,8 @@ const FLOOR_BASE: Record<FloorKind, string> = {
   tile: "#f1ebe0",
   wetTile: "#c9cac7",
   stone: "#d6d3cc",
+  concrete: "#8f949a",
+  paver: "#8d9095",
 };
 
 /** Floor textures and the soft furniture shadow, in feet units. */
@@ -81,6 +91,16 @@ export function PlanDefs() {
       <pattern id="floor-stone" width={1.5} height={1.5} patternUnits="userSpaceOnUse">
         <rect width={1.5} height={1.5} fill={FLOOR_BASE.stone} />
         <path d="M1.5 0H0V1.5" fill="none" stroke="#c2beb5" strokeWidth={0.03} />
+      </pattern>
+      <pattern id="floor-concrete" width={6} height={6} patternUnits="userSpaceOnUse">
+        <rect width={6} height={6} fill={FLOOR_BASE.concrete} />
+        <path d="M6 0H0V6" fill="none" stroke="#7f848a" strokeWidth={0.04} />
+      </pattern>
+      <pattern id="floor-paver" width={1} height={1} patternUnits="userSpaceOnUse">
+        <rect width={1} height={1} fill={FLOOR_BASE.paver} />
+        <path d="M0 0H1M0 0.5H1M0.5 0V0.5M0 0.5V1M1 0.5V1" stroke="#76797e" strokeWidth={0.035} />
+        <rect x={0.04} y={0.04} width={0.42} height={0.42} fill="#999ca1" />
+        <rect x={0.54} y={0.54} width={0.42} height={0.42} fill="#878a8f" />
       </pattern>
       <filter id="soft-shadow" x="-20%" y="-20%" width="140%" height="140%">
         <feDropShadow dx={0.06} dy={0.1} stdDeviation={0.1} floodColor="#3a2a1a" floodOpacity={0.3} />
@@ -109,6 +129,7 @@ function wallFrame(wall: Wall, L: number, W: number): { transform: string; lengt
 
 function assignToWalls(widths: number[], order: Wall[], fallbackWidth: number) {
   const byWall = new Map<Wall, number[]>();
+  if (order.length === 0) return byWall;
   widths.forEach((w, i) => {
     const wall = order[i % order.length];
     byWall.set(wall, [...(byWall.get(wall) ?? []), w > 0 ? w : fallbackWidth]);
@@ -129,9 +150,12 @@ export function RoomOpenings({ room, sharedWalls }: { room: FloorPlanRoom; share
   const L = room.lengthFt;
   const W = room.widthFt;
   const floor = FLOOR_FILL[floorKind(room.category)];
-  const doorOrder = preferWalls(["bottom", "right", "left", "top"], (w) => sharedWalls.has(w));
-  const outside = (["top", "left", "right", "bottom"] as Wall[]).filter((w) => !sharedWalls.has(w));
-  const windowOrder = outside.length > 0 ? outside : (["top", "left", "right", "bottom"] as Wall[]);
+  const walled = (w: Wall) => !room.openWalls.includes(w);
+  const doorOrder = preferWalls((["bottom", "right", "left", "top"] as Wall[]).filter(walled), (w) => sharedWalls.has(w));
+  const candidates = (["top", "left", "right", "bottom"] as Wall[]).filter(walled);
+  const outside = candidates.filter((w) => !sharedWalls.has(w));
+  const windowOrder = outside.length > 0 ? outside : candidates;
+  if (doorOrder.length === 0 && windowOrder.length === 0) return null;
   const doors = assignToWalls(room.doorWidthsFt, doorOrder, 3);
   const windows = assignToWalls(room.windowWidthsFt, windowOrder, 4);
   const nodes: ReactNode[] = [];
@@ -352,8 +376,146 @@ function renderItem(type: FurnitureItem["type"], w: number, h: number): ReactNod
       );
     case "plant":
       return renderPlant(w / 2, h / 2, Math.min(w, h) / 2);
+    case "armchair":
+      return (
+        <>
+          <rect width={w} height={h} rx={0.3} fill={C.sofaDark} />
+          <rect x={w * 0.18} y={h * 0.3} width={w * 0.64} height={h * 0.62} rx={0.2} fill={C.sofa} />
+          <rect x={w * 0.35} y={h * 0.36} width={w * 0.3} height={w * 0.3} rx={0.1} fill={C.olive} />
+        </>
+      );
+    case "bathtub":
+      return (
+        <>
+          <rect width={w} height={h} rx={0.3} fill={C.ceramic} stroke={C.ceramicEdge} strokeWidth={0.03} />
+          <rect x={0.25} y={0.25} width={w - 0.5} height={h - 0.5} rx={Math.min(0.8, h * 0.35)} fill="#e4ebef" stroke="#c4d0d7" strokeWidth={0.03} />
+          <circle cx={w - 0.7} cy={h / 2} r={0.09} fill="#8d969c" />
+        </>
+      );
+    case "shower": {
+      const lines = Math.max(2, Math.round(w / 0.5));
+      return (
+        <>
+          <rect width={w} height={h} fill="#dde2e5" />
+          {Array.from({ length: lines - 1 }, (_, i) => (
+            <g key={i} stroke="#c6cdd1" strokeWidth={0.02}>
+              <line x1={((i + 1) * w) / lines} y1={0} x2={((i + 1) * w) / lines} y2={h} />
+              <line x1={0} y1={((i + 1) * h) / lines} x2={w} y2={((i + 1) * h) / lines} />
+            </g>
+          ))}
+          <circle cx={w / 2} cy={h / 2} r={Math.min(w, h) * 0.08} fill="#9aa3a9" />
+          <rect width={w} height={h} fill="none" stroke="#9fb3c0" strokeWidth={0.05} strokeDasharray="0.2 0.1" />
+        </>
+      );
+    }
+    case "car": {
+      const glass = "#3c4754";
+      return (
+        <>
+          <rect x={w * 0.06} y={0} width={w * 0.88} height={h} rx={w * 0.3} fill="#e9eaec" stroke="#b5b9be" strokeWidth={0.04} />
+          <rect x={-0.05} y={h * 0.3} width={0.35} height={0.25} rx={0.08} fill="#cfd2d6" />
+          <rect x={w - 0.3} y={h * 0.3} width={0.35} height={0.25} rx={0.08} fill="#cfd2d6" />
+          <path d={`M ${w * 0.18} ${h * 0.3} L ${w * 0.82} ${h * 0.3} L ${w * 0.76} ${h * 0.4} L ${w * 0.24} ${h * 0.4} Z`} fill={glass} />
+          <rect x={w * 0.24} y={h * 0.41} width={w * 0.52} height={h * 0.32} rx={0.2} fill="#f4f5f6" stroke="#d5d8db" strokeWidth={0.03} />
+          <path d={`M ${w * 0.24} ${h * 0.74} L ${w * 0.76} ${h * 0.74} L ${w * 0.8} ${h * 0.82} L ${w * 0.2} ${h * 0.82} Z`} fill={glass} />
+          <line x1={w * 0.3} y1={h * 0.05} x2={w * 0.3} y2={h * 0.25} stroke="#d5d8db" strokeWidth={0.04} />
+          <line x1={w * 0.7} y1={h * 0.05} x2={w * 0.7} y2={h * 0.25} stroke="#d5d8db" strokeWidth={0.04} />
+        </>
+      );
+    }
+    case "stairs": {
+      const tread = 0.85;
+      const steps = Math.max(2, Math.floor(h / tread));
+      return (
+        <>
+          <rect width={w} height={h} fill="#b58152" />
+          {Array.from({ length: steps - 1 }, (_, i) => (
+            <line key={i} x1={0} y1={((i + 1) * h) / steps} x2={w} y2={((i + 1) * h) / steps} stroke="#8a5d37" strokeWidth={0.04} />
+          ))}
+          <rect width={w} height={h} fill="none" stroke="#6d4a2d" strokeWidth={0.06} />
+          <line x1={w / 2} y1={h - 0.4} x2={w / 2} y2={0.6} stroke="#2b2b2b" strokeWidth={0.05} />
+          <path d={`M ${w / 2} 0.35 l -0.25 0.4 h 0.5 Z`} fill="#2b2b2b" />
+          <text x={w / 2} y={h - 0.15} fontSize={0.42} fontWeight={700} textAnchor="middle" fill="#2b2b2b" fontFamily="Arial, Helvetica, sans-serif">
+            UP
+          </text>
+        </>
+      );
+    }
   }
 }
+
+export type PlanBounds = { minX: number; minY: number; maxX: number; maxY: number };
+
+export const HEDGE_FT = 1.4;
+
+/** Paved passage around the building with a landscaped hedge border, like a site plan. */
+export function PassageArea({ bounds, passage }: { bounds: PlanBounds; passage: PlanPassage }) {
+  const x0 = bounds.minX - passage.left;
+  const y0 = bounds.minY - passage.top;
+  const x1 = bounds.maxX + passage.right;
+  const y1 = bounds.maxY + passage.bottom;
+  const strips: { side: keyof PlanPassage; x: number; y: number; w: number; h: number }[] = [
+    { side: "top", x: x0, y: y0 - HEDGE_FT, w: x1 - x0, h: HEDGE_FT },
+    { side: "bottom", x: x0, y: y1, w: x1 - x0, h: HEDGE_FT },
+    { side: "left", x: x0 - HEDGE_FT, y: y0 - (passage.top > 0 ? HEDGE_FT : 0), w: HEDGE_FT, h: y1 - y0 + (passage.top > 0 ? HEDGE_FT : 0) + (passage.bottom > 0 ? HEDGE_FT : 0) },
+    { side: "right", x: x1, y: y0 - (passage.top > 0 ? HEDGE_FT : 0), w: HEDGE_FT, h: y1 - y0 + (passage.top > 0 ? HEDGE_FT : 0) + (passage.bottom > 0 ? HEDGE_FT : 0) },
+  ];
+  const labels = [
+    { side: "top" as const, x: (x0 + x1) / 2, y: y0 + passage.top / 2, rotate: 0 },
+    { side: "bottom" as const, x: (x0 + x1) / 2, y: y1 - passage.bottom / 2, rotate: 0 },
+    { side: "left" as const, x: x0 + passage.left / 2, y: (y0 + y1) / 2, rotate: -90 },
+    { side: "right" as const, x: x1 - passage.right / 2, y: (y0 + y1) / 2, rotate: 90 },
+  ];
+
+  return (
+    <g pointerEvents="none">
+      <rect x={x0} y={y0} width={x1 - x0} height={y1 - y0} fill={FLOOR_FILL.paver} />
+      {strips
+        .filter((s) => passage[s.side] > 0)
+        .map((s) => {
+          const along = Math.max(s.w, s.h);
+          const count = Math.max(1, Math.round(along / 3.2));
+          const horizontal = s.w >= s.h;
+          return (
+            <g key={s.side}>
+              <rect x={s.x} y={s.y} width={s.w} height={s.h} fill="#6e8f4e" />
+              {Array.from({ length: count }, (_, i) => {
+                const t = (i + 0.5) / count;
+                const cx = horizontal ? s.x + s.w * t : s.x + s.w / 2;
+                const cy = horizontal ? s.y + s.h / 2 : s.y + s.h * t;
+                return (
+                  <g key={i} filter="url(#soft-shadow)">
+                    <circle cx={cx} cy={cy} r={HEDGE_FT * 0.62} fill={i % 2 ? "#3f6b2f" : "#4f7d3a"} />
+                    <circle cx={cx - 0.18} cy={cy - 0.18} r={HEDGE_FT * 0.32} fill="#6a9a4c" />
+                  </g>
+                );
+              })}
+            </g>
+          );
+        })}
+      {labels
+        .filter((l) => passage[l.side] >= 2)
+        .map((l) => (
+          <text
+            key={l.side}
+            x={l.x}
+            y={l.y}
+            dy={0.2}
+            fontSize={Math.min(0.55, passage[l.side] * 0.16)}
+            fontWeight={700}
+            letterSpacing={0.05}
+            textAnchor="middle"
+            fill="#f3f3f1"
+            fontFamily="Arial, Helvetica, sans-serif"
+            transform={l.rotate ? `rotate(${l.rotate} ${l.x} ${l.y})` : undefined}
+          >
+            PASSAGE {formatFeetInches(passage[l.side])} WIDE
+          </text>
+        ))}
+    </g>
+  );
+}
+
 
 function renderPlant(cx: number, cy: number, r: number) {
   const leaves = 7;

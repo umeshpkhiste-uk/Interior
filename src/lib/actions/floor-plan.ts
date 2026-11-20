@@ -17,7 +17,8 @@ export async function saveFloorPlanLayout(projectId: string, input: FloorPlanSav
   const supabase = await createClient();
 
   // Size changes go through the same path as the Room Measurements form, so areas are recomputed.
-  const resized = parsed.data.filter((r) => r.size);
+  const { rooms, passage } = parsed.data;
+  const resized = rooms.filter((r) => r.size);
   if (resized.length > 0) {
     const { data: rows, error } = await supabase
       .from("project_rooms")
@@ -42,14 +43,22 @@ export async function saveFloorPlanLayout(projectId: string, input: FloorPlanSav
     }
   }
 
+  const { error: passageError } = await supabase
+    .from("projects")
+    .update({ plan_passage: passage })
+    .eq("id", projectId)
+    .eq("organization_id", ctx.organizationId);
+  if (passageError) return { error: passageError.message };
+
   const results = await Promise.all(
-    parsed.data.map((room) =>
+    rooms.map((room) =>
       supabase
         .from("project_rooms")
         .update({
           plan_x: round2(room.x),
           plan_y: round2(room.y),
           plan_rotation: room.rotation,
+          plan_open_walls: room.openWalls,
           plan_furniture: room.furniture.map((f) => ({ ...f, x: round2(f.x), y: round2(f.y), w: round2(f.w), h: round2(f.h) })),
         })
         .eq("id", room.id)
@@ -70,7 +79,7 @@ export async function resetFloorPlanLayout(projectId: string): Promise<ActionRes
   const supabase = await createClient();
   const { error } = await supabase
     .from("project_rooms")
-    .update({ plan_x: null, plan_y: null, plan_rotation: 0, plan_furniture: null })
+    .update({ plan_x: null, plan_y: null, plan_rotation: 0, plan_furniture: null, plan_open_walls: [] })
     .eq("organization_id", ctx.organizationId)
     .eq("project_id", projectId);
   if (error) return { error: error.message };
