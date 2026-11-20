@@ -3242,6 +3242,8 @@ export type Database = {
           is_custom: boolean
           opening_type: Database["public"]["Enums"]["opening_type"]
           organization_id: string
+          plan_offset: number | null
+          plan_wall: string | null
           quantity: number
           room_id: string
           updated_at: string
@@ -3254,6 +3256,8 @@ export type Database = {
           is_custom?: boolean
           opening_type?: Database["public"]["Enums"]["opening_type"]
           organization_id: string
+          plan_offset?: number | null
+          plan_wall?: string | null
           quantity?: number
           room_id: string
           updated_at?: string
@@ -3266,6 +3270,8 @@ export type Database = {
           is_custom?: boolean
           opening_type?: Database["public"]["Enums"]["opening_type"]
           organization_id?: string
+          plan_offset?: number | null
+          plan_wall?: string | null
           quantity?: number
           room_id?: string
           updated_at?: string

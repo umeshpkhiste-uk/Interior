@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState, useTransition, type PointerEvent as ReactPointerEvent, type KeyboardEvent } from "react";
 import { useRouter } from "next/navigation";
-import { RotateCw, Save, Undo2, LayoutGrid, Trash2 } from "lucide-react";
+import { RotateCw, Save, Undo2, LayoutGrid, Trash2, DoorOpen, AppWindow } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,6 +16,11 @@ import {
   localToPlan,
   newFurnitureItem,
   resizeItem,
+  resolveOpenings,
+  alongWall,
+  wallLength,
+  type PlanOpening,
+  type ResolvedOpening,
   rotationTransform,
   sharedWalls,
   toLocalDelta,
@@ -36,8 +41,8 @@ import {
   type FurnitureType,
   type PlanPassage,
 } from "@/lib/validations/floor-plan";
-import { addFloorPlanArea, saveFloorPlanLayout, resetFloorPlanLayout } from "@/lib/actions/floor-plan";
-import { deleteRoom } from "@/lib/actions/rooms";
+import { addFloorPlanArea, addFloorPlanOpening, saveFloorPlanLayout, resetFloorPlanLayout } from "@/lib/actions/floor-plan";
+import { deleteOpening, deleteRoom } from "@/lib/actions/rooms";
 import {
   DimensionLine,
   FLOOR_FILL,
@@ -45,7 +50,8 @@ import {
   HEDGE_FT,
   PassageArea,
   PlanDefs,
-  RoomOpenings,
+  OpeningShape,
+  wallFrameTransform,
   WALL_COLOR,
   WALL_FT,
   floorKind,
@@ -58,11 +64,18 @@ const PAD = { top: 5, left: 3.4, right: 1.5, bottom: 1.5 };
 const SELECT_COLOR = "#d97706";
 const PAPER = "#fbf8f3";
 
-type Selection = { kind: "room"; roomId: string } | { kind: "item"; roomId: string; itemId: string } | null;
+type Selection =
+  | { kind: "room"; roomId: string }
+  | { kind: "item"; roomId: string; itemId: string }
+  | { kind: "opening"; roomId: string; openingId: string }
+  | null;
 type Drag = {
-  mode: "move" | "resize";
+  mode: "move" | "resize" | "room-resize" | "opening";
   roomId: string;
   itemId: string | null;
+  openingId?: string;
+  /** Wall the door/window is drawn on when the drag starts (it may still be auto-placed). */
+  wall?: Wall;
   pointerId: number;
   startX: number;
   startY: number;
@@ -149,6 +162,8 @@ export function FloorPlanEditor({
   const walls = useMemo(() => wallSegments(rooms), [rooms]);
   const sharedWallsByRoom = useMemo(() => new Map(rooms.map((r) => [r.id, sharedWalls(r, rooms)])), [rooms]);
   const selectedRoom = selection ? rooms.find((r) => r.id === selection.roomId) ?? null : null;
+  const selectedOpening =
+    selection?.kind === "opening" ? selectedRoom?.openings.find((o) => o.id === selection.openingId) ?? null : null;
   const selectedItem =
     selection?.kind === "item" ? selectedRoom?.furniture.find((f) => f.id === selection.itemId) ?? null : null;
 
@@ -199,6 +214,27 @@ export function FloorPlanEditor({
     const dx = p.x - drag.startX;
     const dy = p.y - drag.startY;
 
+    if (drag.mode === "room-resize") {
+      const fpW = Math.max(1, snapToGrid(drag.originX + dx));
+      const fpH = Math.max(1, snapToGrid(drag.originY + dy));
+      const turned = room.rotation === 90 || room.rotation === 270;
+      const [lengthFt, widthFt] = turned ? [fpH, fpW] : [fpW, fpH];
+      if (lengthFt !== room.lengthFt || widthFt !== room.widthFt) setRoomSizeFt(room.id, lengthFt, widthFt);
+      return;
+    }
+
+    if (drag.mode === "opening" && drag.openingId) {
+      const opening = room.openings.find((o) => o.id === drag.openingId);
+      const wall = opening?.wall ?? drag.wall;
+      if (!opening || !wall) return;
+      const len = wallLength(room, wall);
+      const width = Math.min(opening.widthFt || (opening.type === "door" ? 3 : 4), len - 0.2);
+      const offset = Math.min(Math.max(snapToGrid(drag.originX + alongWall(dx, dy, room, wall)), 0.1), len - width - 0.1);
+      // An auto-placed opening becomes pinned to its wall the moment it is actually moved.
+      if (offset !== opening.offset || wall !== opening.wall) patchOpening(room.id, opening.id, { wall, offset });
+      return;
+    }
+
     if (drag.itemId && drag.mode === "resize") {
       const item = room.furniture.find((f) => f.id === drag.itemId);
       if (!item) return;
@@ -234,7 +270,7 @@ export function FloorPlanEditor({
     if (!drag || e.pointerId !== drag.pointerId) return;
     setDrag(null);
     if (drag.itemId && drag.mode === "move") dropItem(drag.roomId, drag.itemId);
-    else if (!drag.itemId) setFrame(frameFor(rooms, passage));
+    else if (!drag.itemId && drag.mode !== "opening") setFrame(frameFor(rooms, passage));
   }
 
   function setItemSize(field: "w" | "h", value: number) {
@@ -280,7 +316,7 @@ export function FloorPlanEditor({
   }
 
   function rotateSelection() {
-    if (!selectedRoom) return;
+    if (!selectedRoom || selectedOpening) return;
     if (selectedItem) {
       patchItem(selectedRoom.id, selectedItem.id, (f) => {
         const before = footprint(f);
@@ -300,6 +336,109 @@ export function FloorPlanEditor({
       },
       true
     );
+  }
+
+  /** Resize from the plan (feet); the Room Measurements value is kept in the room's own unit. */
+  function setRoomSizeFt(roomId: string, lengthFt: number, widthFt: number) {
+    const toUnit = (ft: number, unit: FloorPlanRoom["unitSystem"]) =>
+      unit === "metric" ? Math.round((ft / 3.28084) * 100) / 100 : ft;
+    patchRoom(roomId, (r) => {
+      const next = { ...r, lengthFt, widthFt, length: toUnit(lengthFt, r.unitSystem), width: toUnit(widthFt, r.unitSystem) };
+      return { ...next, furniture: r.furniture.map((f) => clampItem(f, next)) };
+    });
+  }
+
+  function patchOpening(roomId: string, openingId: string, patch: Partial<PlanOpening>) {
+    patchRoom(roomId, (r) => ({ openings: r.openings.map((o) => (o.id === openingId ? { ...o, ...patch } : o)) }));
+  }
+
+  /** Starts dragging a door/window along its wall; an auto-placed one is pinned where it is drawn. */
+  function startOpeningDrag(e: ReactPointerEvent, room: FloorPlanRoom, placed: ResolvedOpening) {
+    if (!placed.opening.movable) {
+      e.stopPropagation();
+      setSelection({ kind: "opening", roomId: room.id, openingId: placed.opening.id });
+      return;
+    }
+    e.stopPropagation();
+    svgRef.current?.setPointerCapture(e.pointerId);
+    svgRef.current?.focus({ preventScroll: true });
+    const p = toPlanCoords(e);
+    setSelection({ kind: "opening", roomId: room.id, openingId: placed.opening.id });
+    setDrag({
+      mode: "opening",
+      roomId: room.id,
+      itemId: null,
+      openingId: placed.opening.id,
+      wall: placed.wall,
+      pointerId: e.pointerId,
+      startX: p.x,
+      startY: p.y,
+      originX: placed.offset,
+      originY: 0,
+    });
+  }
+
+  function moveOpeningToSide(side: Wall) {
+    if (!selectedRoom || !selectedOpening) return;
+    const wall = toOwnWall(side, selectedRoom.rotation);
+    const len = wallLength(selectedRoom, wall);
+    const width = Math.min(selectedOpening.widthFt || 3, len - 0.2);
+    patchOpening(selectedRoom.id, selectedOpening.id, { wall, offset: Math.max(0.1, snapToGrid((len - width) / 2)) });
+  }
+
+  function setOpeningWidth(widthFt: number) {
+    if (!selectedRoom || !selectedOpening) return;
+    patchOpening(selectedRoom.id, selectedOpening.id, { widthFt });
+  }
+
+  function addOpening(type: "door" | "window") {
+    if (!selectedRoom) return;
+    const room = selectedRoom;
+    const shared = sharedWallsByRoom.get(room.id) ?? new Set<Wall>();
+    const walled = WALLS.filter((w) => !room.openWalls.includes(w));
+    if (walled.length === 0) {
+      toast.error("This room has no walls — close a side first");
+      return;
+    }
+    const preferred = walled.filter((w) => (type === "door" ? shared.has(w) : !shared.has(w)));
+    const wall = (preferred.length > 0 ? preferred : walled)[0];
+    const widthFt = type === "door" ? 3 : 4;
+    const len = wallLength(room, wall);
+    const fitted = Math.min(widthFt, len - 0.2);
+    startTransition(async () => {
+      if (!(await saveIfDirty())) return;
+      const result = await addFloorPlanOpening(projectId, {
+        roomId: room.id,
+        type,
+        widthFt: fitted,
+        heightFt: type === "door" ? 7 : 4,
+        wall,
+        offset: Math.max(0.1, (len - fitted) / 2),
+      });
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success(`${type === "door" ? "Door" : "Window"} added to ${room.name} — drag it along the wall or pick another wall`);
+      router.refresh();
+    });
+  }
+
+  function removeSelectedOpening() {
+    if (!selectedRoom || !selectedOpening) return;
+    const { rowId } = selectedOpening;
+    const roomId = selectedRoom.id;
+    startTransition(async () => {
+      if (!(await saveIfDirty())) return;
+      const result = await deleteOpening(rowId, roomId, projectId);
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      setSelection(null);
+      toast.success("Removed — also removed from Room Measurements");
+      router.refresh();
+    });
   }
 
   function resizeRoom(roomId: string, field: "length" | "width", value: number) {
@@ -354,6 +493,10 @@ export function FloorPlanEditor({
 
   function handleKeyDown(e: KeyboardEvent) {
     if (!selectedRoom) return;
+    if (selection?.kind === "opening") {
+      if (e.key === "Escape") setSelection(null);
+      return;
+    }
     const step = e.shiftKey ? 1 : GRID_FT;
     const moves: Record<string, [number, number]> = {
       ArrowLeft: [-step, 0],
@@ -412,8 +555,22 @@ export function FloorPlanEditor({
             ...(resized ? { size: { length: r.length, width: r.width } } : {}),
           };
         }),
+        openings: changedOpenings(),
       },
     };
+  }
+
+  function changedOpenings() {
+    const before = new Map(initialRooms.flatMap((r) => r.openings.map((o) => [o.id, o] as const)));
+    return rooms.flatMap((r) =>
+      r.openings.flatMap((o) => {
+        const was = before.get(o.id);
+        if (!o.movable || !o.wall || o.offset == null || !was) return [];
+        const widthChanged = was.widthFt !== o.widthFt;
+        if (was.wall === o.wall && was.offset === o.offset && !widthChanged) return [];
+        return [{ id: o.rowId, roomId: r.id, wall: o.wall, offset: o.offset, ...(widthChanged ? { widthFt: o.widthFt } : {}) }];
+      })
+    );
   }
 
   /** Saves unsaved edits first so adding or removing an area doesn't throw them away. */
@@ -540,7 +697,7 @@ export function FloorPlanEditor({
       </div>
 
       <SelectionPanel
-        key={`${selection?.roomId ?? "none"}-${selection?.kind === "item" ? selection.itemId : ""}-${resetCount}`}
+        key={`${selection?.roomId ?? "none"}-${selection?.kind === "item" ? selection.itemId : selection?.kind === "opening" ? selection.openingId : ""}-${resetCount}`}
         room={selectedRoom}
         item={selectedItem}
         disabled={pending}
@@ -551,6 +708,11 @@ export function FloorPlanEditor({
         onCounterShape={setCounterShape}
         onToggleOpenSide={toggleOpenSide}
         onRemoveRoom={removeSelectedRoom}
+        opening={selectedOpening}
+        onAddOpening={addOpening}
+        onOpeningSide={moveOpeningToSide}
+        onOpeningWidth={setOpeningWidth}
+        onRemoveOpening={removeSelectedOpening}
         passage={passage}
         onPassageChange={changePassage}
       />
@@ -629,11 +791,29 @@ export function FloorPlanEditor({
             ))}
           </g>
 
-          {rooms.map((room) => (
-            <g key={`open-${room.id}`} transform={`translate(${room.x} ${room.y}) ${localTransform(room)}`} pointerEvents="none">
-              <RoomOpenings room={room} sharedWalls={sharedWallsByRoom.get(room.id) ?? new Set()} />
-            </g>
-          ))}
+          {rooms.map((room) => {
+            const floor = FLOOR_FILL[floorKind(room.category)];
+            return (
+              <g key={`open-${room.id}`} transform={`translate(${room.x} ${room.y}) ${localTransform(room)}`}>
+                {resolveOpenings(room, sharedWallsByRoom.get(room.id) ?? new Set()).map((placed) => {
+                  const selected = selection?.kind === "opening" && selection.openingId === placed.opening.id;
+                  const swing = placed.opening.type === "door" ? placed.width : 0;
+                  return (
+                    <g
+                      key={placed.opening.id}
+                      transform={wallFrameTransform(placed.wall, room.lengthFt, room.widthFt)}
+                      onPointerDown={(e) => startOpeningDrag(e, room, placed)}
+                      className={placed.opening.movable ? "cursor-ew-resize" : "cursor-pointer"}
+                      style={{ touchAction: "none" }}
+                    >
+                      <OpeningShape type={placed.opening.type} offset={placed.offset} width={placed.width} floor={floor} selected={selected} />
+                      <rect x={placed.offset} y={-0.45} width={placed.width} height={0.9 + swing * 0.5} fill="transparent" />
+                    </g>
+                  );
+                })}
+              </g>
+            );
+          })}
 
           {rooms.map((room) => {
             const fs = labelSize(room);
@@ -687,6 +867,23 @@ export function FloorPlanEditor({
               pointerEvents="none"
             />
           )}
+          {selection?.kind === "room" && selectedRoom && (
+            <circle
+              cx={selectedRoom.x + footprint(selectedRoom).w}
+              cy={selectedRoom.y + footprint(selectedRoom).h}
+              r={0.42}
+              fill="#fff"
+              stroke={SELECT_COLOR}
+              strokeWidth={0.1}
+              className="cursor-nwse-resize"
+              style={{ touchAction: "none" }}
+              aria-label={`Resize ${selectedRoom.name}`}
+              onPointerDown={(e) => {
+                const fp = footprint(selectedRoom);
+                startDrag(e, selectedRoom.id, null, fp.w, fp.h, "room-resize");
+              }}
+            />
+          )}
         </svg>
       </div>
     </div>
@@ -729,6 +926,11 @@ function SelectionPanel({
   onCounterShape,
   onToggleOpenSide,
   onRemoveRoom,
+  opening,
+  onAddOpening,
+  onOpeningSide,
+  onOpeningWidth,
+  onRemoveOpening,
   passage,
   onPassageChange,
 }: {
@@ -742,6 +944,11 @@ function SelectionPanel({
   onCounterShape: (shape: "counter_l" | "counter_straight") => void;
   onToggleOpenSide: (side: Wall) => void;
   onRemoveRoom: () => void;
+  opening: PlanOpening | null;
+  onAddOpening: (type: "door" | "window") => void;
+  onOpeningSide: (side: Wall) => void;
+  onOpeningWidth: (widthFt: number) => void;
+  onRemoveOpening: () => void;
   passage: PlanPassage;
   onPassageChange: (side: keyof PlanPassage, feet: number) => void;
 }) {
@@ -767,6 +974,56 @@ function SelectionPanel({
             />
           ))}
         </div>
+      </div>
+    );
+  }
+
+  if (opening) {
+    const label = opening.type === "door" ? "Door" : "Window";
+    return (
+      <div className={`${PANEL} bg-muted/30`}>
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="flex flex-col">
+            <span className="text-sm font-medium">
+              {label} in {room.name}
+            </span>
+            <span className="text-xs text-muted-foreground">
+              {opening.movable
+                ? "Drag it along the wall to move it, or pick another wall below"
+                : "Added on Room Measurements with a quantity above 1 — edit it there, or add single doors/windows here"}
+            </span>
+          </div>
+          {opening.movable && (
+            <DimensionInput label="Width (ft)" value={opening.widthFt} onCommit={onOpeningWidth} disabled={disabled} />
+          )}
+          {opening.movable && (
+            <div className="ml-auto">
+              <Button size="sm" variant="outline" onClick={onRemoveOpening} disabled={disabled}>
+                <Trash2 className="size-4" /> Remove {label.toLowerCase()}
+              </Button>
+            </div>
+          )}
+        </div>
+        {opening.movable && (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs text-muted-foreground">Wall:</span>
+            {WALLS.map((side) => {
+              const on = opening.wall === toOwnWall(side, room.rotation);
+              return (
+                <Button
+                  key={side}
+                  size="xs"
+                  variant={on ? "secondary" : "outline"}
+                  aria-pressed={on}
+                  onClick={() => onOpeningSide(side)}
+                  disabled={disabled || room.openWalls.includes(toOwnWall(side, room.rotation))}
+                >
+                  {SIDE_LABELS[side]}
+                </Button>
+              );
+            })}
+          </div>
+        )}
       </div>
     );
   }
@@ -822,12 +1079,18 @@ function SelectionPanel({
         <div className="flex flex-col">
           <span className="text-sm font-medium">{room.name}</span>
           <span className="text-xs text-muted-foreground">
-            {formatFeetInches(room.lengthFt)} x {formatFeetInches(room.widthFt)} — drag to move
+            {formatFeetInches(room.lengthFt)} x {formatFeetInches(room.widthFt)} — drag to move, corner dot to resize
           </span>
         </div>
         <DimensionInput label={`Length (${unit})`} value={room.length} onCommit={(v) => onResize(room.id, "length", v)} disabled={disabled} />
         <DimensionInput label={`Width (${unit})`} value={room.width} onCommit={(v) => onResize(room.id, "width", v)} disabled={disabled} />
         <div className="ml-auto flex flex-wrap items-center gap-2">
+          <Button size="sm" variant="outline" onClick={() => onAddOpening("door")} disabled={disabled}>
+            <DoorOpen className="size-4" /> Door
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => onAddOpening("window")} disabled={disabled}>
+            <AppWindow className="size-4" /> Window
+          </Button>
           <Button size="sm" variant="outline" onClick={onRotate} disabled={disabled}>
             <RotateCw className="size-4" /> Rotate room
           </Button>

@@ -154,6 +154,35 @@ export async function createOpening(
   return { error: null, data: { id: data.id } };
 }
 
+export async function updateOpening(
+  openingId: string,
+  roomId: string,
+  projectId: string,
+  input: OpeningInput
+): Promise<ActionResult> {
+  const parsed = openingSchema.safeParse(input);
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid input" };
+
+  const ctx = await requireCurrentUserContext();
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("room_openings")
+    .update({
+      opening_type: parsed.data.openingType,
+      width: parsed.data.width,
+      height: parsed.data.height,
+      quantity: parsed.data.quantity,
+    })
+    .eq("id", openingId)
+    .eq("room_id", roomId)
+    .eq("organization_id", ctx.organizationId);
+  if (error) return { error: error.message };
+
+  await recomputeRoomAreas(roomId);
+  revalidatePath(`/projects/${projectId}`);
+  return { error: null, data: undefined };
+}
+
 export async function deleteOpening(openingId: string, roomId: string, projectId: string): Promise<ActionResult> {
   const ctx = await requireCurrentUserContext();
   const supabase = await createClient();

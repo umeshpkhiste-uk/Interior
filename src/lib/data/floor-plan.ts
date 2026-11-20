@@ -1,5 +1,5 @@
 import { listRoomsForProject } from "@/lib/data/rooms";
-import { clampItem, defaultFurniture, footprint, type FloorPlanRoom, type PlanRotation } from "@/lib/calculations/floor-plan";
+import { clampItem, defaultFurniture, footprint, type FloorPlanRoom, type PlanOpening, type PlanRotation } from "@/lib/calculations/floor-plan";
 import { NO_PASSAGE, PLAN_WALLS, furnitureItemSchema, passageSchema, type PlanPassage } from "@/lib/validations/floor-plan";
 import { createClient } from "@/lib/supabase/server";
 
@@ -63,10 +63,15 @@ export async function getFloorPlan(organizationId: string, projectId: string): P
       });
       continue;
     }
-    const widthsOf = (type: "door" | "window") =>
-      row.openings
-        .filter((o) => o.opening_type === type)
-        .flatMap((o) => Array.from({ length: o.quantity }, () => Number(o.width ?? 0)));
+    const openings = row.openings.flatMap((o): PlanOpening[] => {
+      if (o.opening_type === "other" || o.quantity <= 0) return [];
+      const base = { rowId: o.id, type: o.opening_type, widthFt: Number(o.width ?? 0), heightFt: Number(o.height ?? 0) };
+      if (o.quantity === 1) {
+        const wall = (PLAN_WALLS as readonly string[]).includes(o.plan_wall ?? "") ? (o.plan_wall as PlanOpening["wall"]) : null;
+        return [{ ...base, id: o.id, wall, offset: o.plan_offset == null ? null : Number(o.plan_offset), movable: true }];
+      }
+      return Array.from({ length: o.quantity }, (_, k) => ({ ...base, id: `${o.id}#${k}`, wall: null, offset: null, movable: false }));
+    });
 
     const savedFurniture = furnitureItemSchema.array().safeParse(row.plan_furniture);
     const furniture = savedFurniture.success
@@ -85,8 +90,7 @@ export async function getFloorPlan(organizationId: string, projectId: string): P
       x: Number(row.plan_x ?? 0),
       y: Number(row.plan_y ?? 0),
       rotation: (row.plan_rotation ?? 0) as PlanRotation,
-      doorWidthsFt: widthsOf("door"),
-      windowWidthsFt: widthsOf("window"),
+      openings,
       furniture,
       openWalls: (row.plan_open_walls ?? []).filter((w): w is (typeof PLAN_WALLS)[number] =>
         (PLAN_WALLS as readonly string[]).includes(w)

@@ -18,13 +18,96 @@ export type FloorPlanRoom = {
   x: number;
   y: number;
   rotation: PlanRotation;
-  doorWidthsFt: number[];
-  windowWidthsFt: number[];
+  openings: PlanOpening[];
   /** In the room's local frame (feet from its own top-left, before the room's rotation). */
   furniture: FurnitureItem[];
   /** Own-frame sides drawn without a wall. */
   openWalls: Wall[];
 };
+
+export type PlanOpening = {
+  /** Unique on the plan; equals rowId unless a Room Measurements row has quantity > 1. */
+  id: string;
+  rowId: string;
+  type: "door" | "window";
+  widthFt: number;
+  heightFt: number;
+  /** Own-frame wall and feet along it; null = placed automatically. */
+  wall: Wall | null;
+  offset: number | null;
+  /** Rows with quantity > 1 are drawn but can only be edited on Room Measurements. */
+  movable: boolean;
+};
+
+export type ResolvedOpening = { opening: PlanOpening; wall: Wall; offset: number; width: number };
+
+export function wallLength(room: Pick<FloorPlanRoom, "lengthFt" | "widthFt">, wall: Wall): number {
+  return wall === "top" || wall === "bottom" ? room.lengthFt : room.widthFt;
+}
+
+/**
+ * Where each door/window is drawn. Openings placed on the plan keep their wall and
+ * position; the rest are spread automatically — windows on outside walls, doors
+ * preferring walls shared with another room, never on open sides.
+ */
+export function resolveOpenings(room: FloorPlanRoom, shared: Set<Wall>): ResolvedOpening[] {
+  const resolved: ResolvedOpening[] = [];
+  const walled = WALLS.filter((w) => !room.openWalls.includes(w));
+
+  for (const o of room.openings) {
+    if (!o.wall) continue;
+    const len = wallLength(room, o.wall);
+    const width = Math.min(o.widthFt > 0 ? o.widthFt : o.type === "door" ? 3 : 4, len - 0.2);
+    if (width < 0.5) continue;
+    resolved.push({ opening: o, wall: o.wall, width, offset: Math.min(Math.max(o.offset ?? 0, 0.1), len - width - 0.1) });
+  }
+
+  const doorOrder = (["bottom", "right", "left", "top"] as Wall[]).filter((w) => walled.includes(w));
+  const doorWalls = [...doorOrder.filter((w) => shared.has(w)), ...doorOrder.filter((w) => !shared.has(w))];
+  const windowCandidates = (["top", "left", "right", "bottom"] as Wall[]).filter((w) => walled.includes(w));
+  const outside = windowCandidates.filter((w) => !shared.has(w));
+  const windowWalls = outside.length > 0 ? outside : windowCandidates;
+
+  for (const [type, order, fallback] of [
+    ["door", doorWalls, 3],
+    ["window", windowWalls, 4],
+  ] as const) {
+    if (order.length === 0) continue;
+    const auto = room.openings.filter((o) => !o.wall && o.type === type);
+    const byWall = new Map<Wall, PlanOpening[]>();
+    auto.forEach((o, i) => {
+      const wall = order[i % order.length];
+      byWall.set(wall, [...(byWall.get(wall) ?? []), o]);
+    });
+    for (const [wall, list] of byWall) {
+      const len = wallLength(room, wall);
+      const widest = Math.max(...list.map((o) => (o.widthFt > 0 ? o.widthFt : fallback)));
+      const width = Math.min(widest, type === "door" ? 4 : Infinity, len / list.length - 0.8);
+      if (width < (type === "door" ? 1.5 : 0.8)) continue;
+      const gap = (len - width * list.length) / (list.length + 1);
+      list.forEach((o, k) => {
+        const offset = type === "door" ? 0.4 + k * (width + 0.8) : gap + k * (width + gap);
+        resolved.push({ opening: o, wall, offset, width });
+      });
+    }
+  }
+  return resolved;
+}
+
+/** Converts a movement on the plan into movement along one of the room's own walls. */
+export function alongWall(dx: number, dy: number, room: Pick<FloorPlanRoom, "rotation">, wall: Wall): number {
+  const local = toLocalDelta(dx, dy, room.rotation);
+  switch (wall) {
+    case "top":
+      return local.dx;
+    case "right":
+      return local.dy;
+    case "bottom":
+      return -local.dx;
+    case "left":
+      return -local.dy;
+  }
+}
 
 /** Bounding box of anything with an own size and a quarter-turn rotation. */
 export function footprint(box: { rotation: number } & ({ lengthFt: number; widthFt: number } | { w: number; h: number })) {

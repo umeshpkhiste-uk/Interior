@@ -3,8 +3,15 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireCurrentUserContext } from "@/lib/data/organization";
-import { createRoom, updateRoom } from "@/lib/actions/rooms";
-import { floorPlanSaveSchema, newAreaSchema, type FloorPlanSaveInput, type NewAreaInput } from "@/lib/validations/floor-plan";
+import { createOpening, createRoom, updateOpening, updateRoom } from "@/lib/actions/rooms";
+import {
+  floorPlanSaveSchema,
+  newAreaSchema,
+  newOpeningSchema,
+  type FloorPlanSaveInput,
+  type NewAreaInput,
+  type NewOpeningInput,
+} from "@/lib/validations/floor-plan";
 import type { ActionResult } from "@/lib/actions/clients";
 
 const round2 = (v: number) => Math.round(v * 100) / 100;
@@ -17,7 +24,7 @@ export async function saveFloorPlanLayout(projectId: string, input: FloorPlanSav
   const supabase = await createClient();
 
   // Size changes go through the same path as the Room Measurements form, so areas are recomputed.
-  const { rooms, passage } = parsed.data;
+  const { rooms, passage, openings } = parsed.data;
   const resized = rooms.filter((r) => r.size);
   if (resized.length > 0) {
     const { data: rows, error } = await supabase
@@ -68,6 +75,9 @@ export async function saveFloorPlanLayout(projectId: string, input: FloorPlanSav
   );
   const failed = results.find((r) => r.error);
   if (failed?.error) return { error: failed.error.message };
+
+  const openingError = await saveOpeningPlacements(ctx.organizationId, projectId, openings);
+  if (openingError) return { error: openingError };
 
   revalidatePath("/design/2d");
   revalidatePath(`/projects/${projectId}`);
@@ -123,4 +133,79 @@ export async function addFloorPlanArea(projectId: string, input: NewAreaInput): 
 
   revalidatePath("/design/2d");
   return { error: null, data: { id: roomId } };
+}
+
+async function saveOpeningPlacements(
+  organizationId: string,
+  projectId: string,
+  openings: FloorPlanSaveInput["openings"]
+): Promise<string | null> {
+  if (openings.length === 0) return null;
+  const supabase = await createClient();
+  const projectRoomIds = new Set(
+    (
+      await supabase.from("project_rooms").select("id").eq("organization_id", organizationId).eq("project_id", projectId)
+    ).data?.map((r) => r.id) ?? []
+  );
+
+  for (const o of openings) {
+    if (!projectRoomIds.has(o.roomId)) return "Opening does not belong to this project";
+    const { data: row, error } = await supabase
+      .from("room_openings")
+      .update({ plan_wall: o.wall, plan_offset: round2(o.offset) })
+      .eq("id", o.id)
+      .eq("room_id", o.roomId)
+      .eq("organization_id", organizationId)
+      .select("opening_type, height, quantity")
+      .single();
+    if (error) return error.message;
+    if (o.widthFt !== undefined) {
+      // Width changes the wall area, so it goes through the same update as Room Measurements.
+      const result = await updateOpening(o.id, o.roomId, projectId, {
+        openingType: row.opening_type,
+        width: o.widthFt,
+        height: Number(row.height ?? 0),
+        quantity: row.quantity,
+      });
+      if (result.error) return result.error;
+    }
+  }
+  return null;
+}
+
+/** Adds a door/window to a room from the plan, already placed on the chosen wall. */
+export async function addFloorPlanOpening(projectId: string, input: NewOpeningInput): Promise<ActionResult<{ id: string }>> {
+  const parsed = newOpeningSchema.safeParse(input);
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid opening" };
+  const o = parsed.data;
+
+  const ctx = await requireCurrentUserContext();
+  const supabase = await createClient();
+  const { data: room, error: roomError } = await supabase
+    .from("project_rooms")
+    .select("id")
+    .eq("id", o.roomId)
+    .eq("project_id", projectId)
+    .eq("organization_id", ctx.organizationId)
+    .maybeSingle();
+  if (roomError) return { error: roomError.message };
+  if (!room) return { error: "Room not found" };
+
+  const created = await createOpening(o.roomId, projectId, {
+    openingType: o.type,
+    width: o.widthFt,
+    height: o.heightFt,
+    quantity: 1,
+  });
+  if (created.error !== null) return { error: created.error };
+
+  const { error } = await supabase
+    .from("room_openings")
+    .update({ plan_wall: o.wall, plan_offset: round2(o.offset) })
+    .eq("id", created.data.id)
+    .eq("organization_id", ctx.organizationId);
+  if (error) return { error: error.message };
+
+  revalidatePath("/design/2d");
+  return { error: null, data: { id: created.data.id } };
 }

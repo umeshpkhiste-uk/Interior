@@ -114,87 +114,68 @@ export function localTransform(room: FloorPlanRoom): string {
 }
 
 /** Frame where the wall runs along +x from 0 to its length and the room interior is +y. */
-function wallFrame(wall: Wall, L: number, W: number): { transform: string; length: number } {
+export function wallFrameTransform(wall: Wall, L: number, W: number): string {
   switch (wall) {
     case "top":
-      return { transform: "", length: L };
+      return "";
     case "right":
-      return { transform: `translate(${L} 0) rotate(90)`, length: W };
+      return `translate(${L} 0) rotate(90)`;
     case "bottom":
-      return { transform: `translate(${L} ${W}) rotate(180)`, length: L };
+      return `translate(${L} ${W}) rotate(180)`;
     case "left":
-      return { transform: `translate(0 ${W}) rotate(270)`, length: W };
+      return `translate(0 ${W}) rotate(270)`;
   }
-}
-
-function assignToWalls(widths: number[], order: Wall[], fallbackWidth: number) {
-  const byWall = new Map<Wall, number[]>();
-  if (order.length === 0) return byWall;
-  widths.forEach((w, i) => {
-    const wall = order[i % order.length];
-    byWall.set(wall, [...(byWall.get(wall) ?? []), w > 0 ? w : fallbackWidth]);
-  });
-  return byWall;
-}
-
-function preferWalls(order: Wall[], preferred: (wall: Wall) => boolean): Wall[] {
-  const first = order.filter(preferred);
-  return first.length > 0 ? [...first, ...order.filter((w) => !preferred(w))] : order;
 }
 
 /**
- * Doors open the wall onto the room's floor and show their swing; windows are glazed
- * strips set into outside walls. Doors favour walls shared with another room.
+ * One door or window drawn in its wall's frame (see wallFrameTransform), starting
+ * `offset` feet along the wall. Doors open the wall onto the floor and show their
+ * swing; windows are glazed strips set into the wall.
  */
-export function RoomOpenings({ room, sharedWalls }: { room: FloorPlanRoom; sharedWalls: Set<Wall> }) {
-  const L = room.lengthFt;
-  const W = room.widthFt;
-  const floor = FLOOR_FILL[floorKind(room.category)];
-  const walled = (w: Wall) => !room.openWalls.includes(w);
-  const doorOrder = preferWalls((["bottom", "right", "left", "top"] as Wall[]).filter(walled), (w) => sharedWalls.has(w));
-  const candidates = (["top", "left", "right", "bottom"] as Wall[]).filter(walled);
-  const outside = candidates.filter((w) => !sharedWalls.has(w));
-  const windowOrder = outside.length > 0 ? outside : candidates;
-  if (doorOrder.length === 0 && windowOrder.length === 0) return null;
-  const doors = assignToWalls(room.doorWidthsFt, doorOrder, 3);
-  const windows = assignToWalls(room.windowWidthsFt, windowOrder, 4);
-  const nodes: ReactNode[] = [];
+export function OpeningShape({
+  type,
+  offset: o,
+  width,
+  floor,
+  selected,
+}: {
+  type: "door" | "window";
+  offset: number;
+  width: number;
+  floor: string;
+  selected: boolean;
+}) {
   const half = WALL_FT / 2;
-
-  for (const [wall, widths] of windows) {
-    const { transform, length } = wallFrame(wall, L, W);
-    const width = Math.min(Math.max(...widths), length / widths.length - 0.8);
-    if (width < 0.8) continue;
-    const gap = (length - width * widths.length) / (widths.length + 1);
-    widths.forEach((_, k) => {
-      const o = gap + k * (width + gap);
-      nodes.push(
-        <g key={`w-${wall}-${k}`} transform={transform}>
-          <rect x={o} y={-half} width={width} height={WALL_FT} fill="#e9eef1" stroke="#8d969c" strokeWidth={0.025} />
-          <line x1={o} y1={-half / 3} x2={o + width} y2={-half / 3} stroke="#9fb3c0" strokeWidth={0.03} />
-          <line x1={o} y1={half / 3} x2={o + width} y2={half / 3} stroke="#9fb3c0" strokeWidth={0.03} />
-        </g>
-      );
-    });
+  const outline = selected ? (
+    <rect
+      x={o - 0.12}
+      y={-half - 0.12}
+      width={width + 0.24}
+      height={(type === "door" ? width : 0) + WALL_FT + 0.24}
+      fill="none"
+      stroke="#d97706"
+      strokeWidth={0.06}
+      strokeDasharray="0.25 0.15"
+    />
+  ) : null;
+  if (type === "window") {
+    return (
+      <>
+        <rect x={o} y={-half} width={width} height={WALL_FT} fill="#e9eef1" stroke="#8d969c" strokeWidth={0.025} />
+        <line x1={o} y1={-half / 3} x2={o + width} y2={-half / 3} stroke="#9fb3c0" strokeWidth={0.03} />
+        <line x1={o} y1={half / 3} x2={o + width} y2={half / 3} stroke="#9fb3c0" strokeWidth={0.03} />
+        {outline}
+      </>
+    );
   }
-
-  for (const [wall, widths] of doors) {
-    const { transform, length } = wallFrame(wall, L, W);
-    const width = Math.min(Math.max(...widths), 4, length / widths.length - 0.8);
-    if (width < 1.5) continue;
-    widths.forEach((_, k) => {
-      const o = 0.4 + k * (width + 0.8);
-      nodes.push(
-        <g key={`d-${wall}-${k}`} transform={transform}>
-          <rect x={o} y={-half - 0.02} width={width} height={WALL_FT + 0.04} fill={floor} />
-          <path d={`M ${o} ${width} A ${width} ${width} 0 0 0 ${o + width} 0`} fill="none" stroke="#6b625a" strokeWidth={0.03} />
-          <rect x={o - 0.04} y={0} width={0.08} height={width} fill="#f7f4ee" stroke="#6b625a" strokeWidth={0.02} />
-        </g>
-      );
-    });
-  }
-
-  return <>{nodes}</>;
+  return (
+    <>
+      <rect x={o} y={-half - 0.02} width={width} height={WALL_FT + 0.04} fill={floor} />
+      <path d={`M ${o} ${width} A ${width} ${width} 0 0 0 ${o + width} 0`} fill="none" stroke="#6b625a" strokeWidth={0.03} />
+      <rect x={o - 0.04} y={0} width={0.08} height={width} fill="#f7f4ee" stroke="#6b625a" strokeWidth={0.02} />
+      {outline}
+    </>
+  );
 }
 
 /** Top-down, rendered furniture drawn in its own w × h frame (top edge = against the wall). */

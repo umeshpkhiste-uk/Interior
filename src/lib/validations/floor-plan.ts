@@ -102,6 +102,18 @@ export const floorPlanSaveSchema = z.object({
       })
     )
     .max(200),
+  /** Doors/windows moved or resized on the plan. widthFt only when the width changed. */
+  openings: z
+    .array(
+      z.object({
+        id: z.string().uuid(),
+        roomId: z.string().uuid(),
+        wall: z.enum(PLAN_WALLS),
+        offset: z.number().min(0).max(500),
+        widthFt: z.number().positive().max(30).optional(),
+      })
+    )
+    .max(500),
 });
 
 export type FloorPlanSaveInput = z.infer<typeof floorPlanSaveSchema>;
@@ -126,3 +138,14 @@ export const newAreaSchema = z.object({
 });
 
 export type NewAreaInput = z.infer<typeof newAreaSchema>;
+
+export const newOpeningSchema = z.object({
+  roomId: z.string().uuid(),
+  type: z.enum(["door", "window"]),
+  widthFt: z.number().positive().max(30),
+  heightFt: z.number().positive().max(30),
+  wall: z.enum(PLAN_WALLS),
+  offset: z.number().min(0).max(500),
+});
+
+export type NewOpeningInput = z.infer<typeof newOpeningSchema>;
