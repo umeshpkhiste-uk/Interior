@@ -26,8 +26,8 @@ export default async function Design2DPage({
         icon={Square}
         kitLabel="Design • 2D Floor Plan"
         title="2D Design"
-        subtitle="A to-scale floor plan generated from each project's Room Measurements — drag and rotate rooms to match the real layout."
-        badges={["To scale", "Drag & rotate", "Doors & Windows", "Furniture"]}
+        subtitle="A to-scale floor plan generated from each project's Room Measurements — move rooms and furniture, and resize rooms right on the plan."
+        badges={["To scale", "Drag & rotate", "Resize rooms", "Furniture"]}
         image={MODULE_HEADER_IMAGES.blueprintTools}
       />
 
@@ -76,7 +76,7 @@ async function ProjectFloorPlan({
   const { rooms, missing } = await getFloorPlan(organizationId, projectId);
   const totalAreaSqft = rooms.reduce((acc, r) => acc + r.lengthFt * r.widthFt, 0);
   // Remount the editor whenever the saved layout or room set changes, so it starts from the server's state.
-  const layoutKey = rooms.map((r) => `${r.id}:${r.x}:${r.y}:${r.rotation}:${r.lengthFt}:${r.widthFt}`).join("|");
+  const layoutKey = JSON.stringify(rooms);
 
   return (
     <div className="flex flex-col gap-4">

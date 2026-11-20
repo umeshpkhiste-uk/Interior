@@ -1,27 +1,16 @@
 import type { ReactNode } from "react";
-import type { FloorPlanRoom } from "@/lib/calculations/floor-plan";
+import { rotationTransform, type FloorPlanRoom, type Wall } from "@/lib/calculations/floor-plan";
+import type { FurnitureItem } from "@/lib/validations/floor-plan";
 
-export const WALL_FT = 0.4;
-const LINE = "#2b2b2b";
-const THIN = 0.05;
+export const WALL_FT = 0.16;
+export const WALL_COLOR = "#262626";
+const LINE = "#3a3a3a";
+const THIN = 0.03;
 const WINDOW_COLOR = "#4a78a8";
+const WINDOW_DEPTH = 0.26;
 
-type Wall = "top" | "right" | "bottom" | "left";
-
-/** Maps a room's local frame (length along x, width along y) into its rotated footprint. */
 export function localTransform(room: FloorPlanRoom): string {
-  const L = room.lengthFt;
-  const W = room.widthFt;
-  switch (room.rotation) {
-    case 90:
-      return `translate(${W} 0) rotate(90)`;
-    case 180:
-      return `translate(${L} ${W}) rotate(180)`;
-    case 270:
-      return `translate(0 ${L}) rotate(270)`;
-    default:
-      return "";
-  }
+  return rotationTransform(room.lengthFt, room.widthFt, room.rotation);
 }
 
 /** Frame where the wall runs along +x from 0 to its length and the room interior is +y. */
@@ -47,12 +36,24 @@ function assignToWalls(widths: number[], order: Wall[], fallbackWidth: number) {
   return byWall;
 }
 
-/** Doors cut the wall and show their swing; windows sit in the wall as a thin double line. */
-export function RoomOpenings({ room }: { room: FloorPlanRoom }) {
+/** Puts the preferred walls first while keeping the base order within each group. */
+function preferWalls(order: Wall[], preferred: (wall: Wall) => boolean): Wall[] {
+  const first = order.filter(preferred);
+  return first.length > 0 ? [...first, ...order.filter((w) => !preferred(w))] : order;
+}
+
+/**
+ * Doors cut the wall and show their swing; windows sit in the wall as a thin double line.
+ * Windows go on outside walls and doors favour walls shared with another room.
+ */
+export function RoomOpenings({ room, sharedWalls }: { room: FloorPlanRoom; sharedWalls: Set<Wall> }) {
   const L = room.lengthFt;
   const W = room.widthFt;
-  const doors = assignToWalls(room.doorWidthsFt, ["bottom", "right", "left", "top"], 3);
-  const windows = assignToWalls(room.windowWidthsFt, ["top", "left", "right", "bottom"], 4);
+  const doorOrder = preferWalls(["bottom", "right", "left", "top"], (w) => sharedWalls.has(w));
+  const outside = (["top", "left", "right", "bottom"] as Wall[]).filter((w) => !sharedWalls.has(w));
+  const windowOrder = outside.length > 0 ? outside : (["top", "left", "right", "bottom"] as Wall[]);
+  const doors = assignToWalls(room.doorWidthsFt, doorOrder, 3);
+  const windows = assignToWalls(room.windowWidthsFt, windowOrder, 4);
   const nodes: ReactNode[] = [];
 
   for (const [wall, widths] of windows) {
@@ -64,9 +65,8 @@ export function RoomOpenings({ room }: { room: FloorPlanRoom }) {
       const o = gap + k * (width + gap);
       nodes.push(
         <g key={`w-${wall}-${k}`} transform={transform}>
-          <rect x={o} y={-WALL_FT / 2} width={width} height={WALL_FT} fill="#fff" stroke={WINDOW_COLOR} strokeWidth={THIN} />
-          <line x1={o} y1={-WALL_FT / 6} x2={o + width} y2={-WALL_FT / 6} stroke={WINDOW_COLOR} strokeWidth={THIN} />
-          <line x1={o} y1={WALL_FT / 6} x2={o + width} y2={WALL_FT / 6} stroke={WINDOW_COLOR} strokeWidth={THIN} />
+          <rect x={o} y={-WINDOW_DEPTH / 2} width={width} height={WINDOW_DEPTH} fill="#fff" stroke={WINDOW_COLOR} strokeWidth={THIN} />
+          <line x1={o} y1={0} x2={o + width} y2={0} stroke={WINDOW_COLOR} strokeWidth={THIN} />
         </g>
       );
     });
@@ -80,9 +80,9 @@ export function RoomOpenings({ room }: { room: FloorPlanRoom }) {
       const o = 0.4 + k * (width + 0.8);
       nodes.push(
         <g key={`d-${wall}-${k}`} transform={transform}>
-          <rect x={o} y={-WALL_FT / 2 - 0.03} width={width} height={WALL_FT + 0.06} fill="#fff" />
-          <line x1={o} y1={0} x2={o} y2={width} stroke={LINE} strokeWidth={THIN * 1.4} />
-          <path d={`M ${o} ${width} A ${width} ${width} 0 0 0 ${o + width} 0`} fill="none" stroke={LINE} strokeWidth={THIN} />
+          <rect x={o} y={-WALL_FT / 2 - 0.02} width={width} height={WALL_FT + 0.04} fill="#fff" />
+          <line x1={o} y1={0} x2={o} y2={width} stroke={LINE} strokeWidth={THIN * 1.5} />
+          <path d={`M ${o} ${width} A ${width} ${width} 0 0 0 ${o + width} 0`} fill="none" stroke={LINE} strokeWidth={THIN} strokeDasharray="0.15 0.08" />
         </g>
       );
     });
@@ -91,125 +91,116 @@ export function RoomOpenings({ room }: { room: FloorPlanRoom }) {
   return <>{nodes}</>;
 }
 
-/** Simple plan-view furniture so each room reads like a drafted layout. Local frame: L × W feet. */
-export function RoomFurniture({ room }: { room: FloorPlanRoom }) {
-  const L = room.lengthFt;
-  const W = room.widthFt;
+export function RoomDecoration({ room }: { room: FloorPlanRoom }) {
+  if (room.category !== "balcony") return null;
+  return (
+    <rect
+      x={0.35}
+      y={0.35}
+      width={Math.max(0, room.lengthFt - 0.7)}
+      height={Math.max(0, room.widthFt - 0.7)}
+      fill="none"
+      stroke={LINE}
+      strokeWidth={THIN}
+      strokeDasharray="0.3 0.2"
+    />
+  );
+}
+
+/** Plan-view symbol for one furniture item, drawn in its own w × h frame. */
+export function FurnitureShape({ item }: { item: FurnitureItem }) {
+  const { w, h } = item;
   const s = { fill: "#fff", stroke: LINE, strokeWidth: THIN } as const;
 
-  switch (room.category) {
-    case "master_bedroom":
-    case "bedroom_2":
-    case "bedroom_3": {
-      if (L < 8 || W < 8) return null;
-      const bedW = Math.min(room.category === "master_bedroom" ? 6 : 5, L - 3.5);
-      const bedH = Math.min(6.5, W - 2.5);
-      const bx = (L - bedW) / 2;
-      const by = 0.4;
+  switch (item.type) {
+    case "bed":
       return (
         <g>
-          <rect x={bx} y={by} width={bedW} height={bedH} rx={0.15} {...s} />
-          <rect x={bx + 0.3} y={by + 0.3} width={bedW / 2 - 0.45} height={1.1} rx={0.2} {...s} />
-          <rect x={bx + bedW / 2 + 0.15} y={by + 0.3} width={bedW / 2 - 0.45} height={1.1} rx={0.2} {...s} />
-          <path d={`M ${bx} ${by + 2.2} L ${bx + bedW} ${by + 2.2} M ${bx + bedW * 0.55} ${by + 2.2} L ${bx + bedW} ${by + bedH * 0.7}`} {...s} fill="none" />
-          <rect x={bx - 1.6} y={by} width={1.4} height={1.4} {...s} />
-          <rect x={bx + bedW + 0.2} y={by} width={1.4} height={1.4} {...s} />
-          {L >= 11 && W >= 10 && (
-            <g>
-              <rect x={0.2} y={W - 2.2} width={Math.min(6, L - 4.5)} height={2} {...s} />
-              <text x={0.2 + Math.min(6, L - 4.5) / 2} y={W - 1.05} fontSize={0.38} textAnchor="middle" fill={LINE}>
-                Wardrobe
-              </text>
-            </g>
-          )}
+          <rect width={w} height={h} rx={0.12} {...s} />
+          <rect x={0.25} y={0.25} width={w / 2 - 0.37} height={Math.min(1.1, h * 0.2)} rx={0.18} {...s} />
+          <rect x={w / 2 + 0.12} y={0.25} width={w / 2 - 0.37} height={Math.min(1.1, h * 0.2)} rx={0.18} {...s} />
+          <path d={`M 0 ${h * 0.33} L ${w} ${h * 0.33} M ${w * 0.55} ${h * 0.33} L ${w} ${h * 0.7}`} {...s} fill="none" />
         </g>
       );
-    }
-    case "living_room": {
-      if (L < 8 || W < 7) return null;
-      const sofaLen = Math.min(7, W - 2);
-      const sy = (W - sofaLen) / 2;
-      const seat = sofaLen / 3;
+    case "wardrobe":
       return (
         <g>
-          <rect x={0.3} y={sy} width={2.8} height={sofaLen} rx={0.2} {...s} />
-          <rect x={0.3} y={sy} width={0.7} height={sofaLen} rx={0.15} {...s} />
+          <rect width={w} height={h} {...s} />
+          <line x1={0} y1={h - 0.15} x2={w} y2={h - 0.15} stroke={LINE} strokeWidth={THIN} />
+          <text x={w / 2} y={h / 2 + 0.12} fontSize={Math.min(0.36, h * 0.25)} textAnchor="middle" fill={LINE} fontFamily="Arial, Helvetica, sans-serif">
+            Wardrobe
+          </text>
+        </g>
+      );
+    case "sofa": {
+      const seat = w / 3;
+      return (
+        <g>
+          <rect width={w} height={h} rx={0.2} {...s} />
+          <rect width={w} height={h * 0.25} rx={0.15} {...s} />
           {[1, 2].map((i) => (
-            <line key={i} x1={1} y1={sy + seat * i} x2={3.1} y2={sy + seat * i} stroke={LINE} strokeWidth={THIN} />
+            <line key={i} x1={seat * i} y1={h * 0.25} x2={seat * i} y2={h} stroke={LINE} strokeWidth={THIN} />
           ))}
-          <rect x={4} y={W / 2 - 1.5} width={2.2} height={3} rx={0.1} {...s} />
-          <rect x={L - 1.5} y={W / 2 - 2.5} width={1.2} height={5} {...s} />
         </g>
       );
     }
-    case "dining_room": {
-      if (L < 6 || W < 6) return null;
-      const alongX = L >= W;
-      const tl = Math.min(6, (alongX ? L : W) - 2.5);
-      const tw = 3;
-      const tx = alongX ? (L - tl) / 2 : (L - tw) / 2;
-      const ty = alongX ? (W - tw) / 2 : (W - tl) / 2;
+    case "dining_set": {
+      const tw = Math.max(1, h - 2.8);
       const chairs: ReactNode[] = [];
       for (let i = 0; i < 3; i++) {
-        const along = (tl / 3) * i + tl / 6 - 0.6;
-        if (alongX) {
-          chairs.push(<rect key={`a${i}`} x={tx + along} y={ty - 1.4} width={1.2} height={1.1} rx={0.15} {...s} />);
-          chairs.push(<rect key={`b${i}`} x={tx + along} y={ty + tw + 0.3} width={1.2} height={1.1} rx={0.15} {...s} />);
-        } else {
-          chairs.push(<rect key={`a${i}`} x={tx - 1.4} y={ty + along} width={1.1} height={1.2} rx={0.15} {...s} />);
-          chairs.push(<rect key={`b${i}`} x={tx + tw + 0.3} y={ty + along} width={1.1} height={1.2} rx={0.15} {...s} />);
-        }
+        const cx = (w / 3) * i + w / 6 - 0.6;
+        chairs.push(<rect key={`a${i}`} x={cx} y={0} width={1.2} height={1.1} rx={0.15} {...s} />);
+        chairs.push(<rect key={`b${i}`} x={cx} y={h - 1.1} width={1.2} height={1.1} rx={0.15} {...s} />);
       }
       return (
         <g>
           {chairs}
-          <rect x={tx} y={ty} width={alongX ? tl : tw} height={alongX ? tw : tl} {...s} />
+          <rect x={0} y={1.4} width={w} height={tw} {...s} />
         </g>
       );
     }
-    case "kitchen": {
-      if (L < 6 || W < 5) return null;
-      const d = 2;
+    case "counter_l": {
+      const d = Math.min(2, w / 2, h / 2);
+      return <path d={`M 0 0 H ${w} V ${d} H ${d} V ${h} H 0 Z`} {...s} />;
+    }
+    case "sink":
       return (
         <g>
-          <path d={`M 0.2 0.2 H ${L - 0.2} V ${0.2 + d} H ${0.2 + d} V ${W - 0.2} H 0.2 Z`} {...s} />
-          <rect x={L * 0.55} y={0.45} width={2.4} height={1.5} rx={0.1} {...s} />
-          <rect x={L * 0.55 + 0.2} y={0.65} width={2} height={1.1} rx={0.25} {...s} />
-          {[0, 1].flatMap((r) =>
-            [0, 1].map((c) => <circle key={`${r}${c}`} cx={0.75 + c * 0.9} cy={W / 2 + r * 0.9} r={0.32} {...s} />)
+          <rect width={w} height={h} rx={0.1} {...s} />
+          <rect x={0.2} y={0.2} width={w - 0.4} height={h - 0.4} rx={0.25} {...s} />
+        </g>
+      );
+    case "hob":
+      return (
+        <g>
+          <rect width={w} height={h} rx={0.08} {...s} />
+          {[0.25, 0.75].flatMap((fy) =>
+            [0.25, 0.75].map((fx) => <circle key={`${fx}${fy}`} cx={w * fx} cy={h * fy} r={Math.min(w, h) * 0.17} {...s} />)
           )}
         </g>
       );
-    }
-    case "bathroom": {
-      if (L < 3.5 || W < 4) return null;
+    case "wc":
       return (
         <g>
-          <rect x={0.4} y={0.3} width={1.6} height={0.6} rx={0.1} {...s} />
-          <ellipse cx={1.2} cy={1.65} rx={0.65} ry={0.85} {...s} />
-          <rect x={L - 1.9} y={0.3} width={1.6} height={1.2} rx={0.2} {...s} />
-          <ellipse cx={L - 1.1} cy={0.9} rx={0.55} ry={0.4} {...s} />
+          <rect width={w} height={h * 0.24} rx={0.08} {...s} />
+          <ellipse cx={w / 2} cy={h * 0.6} rx={w * 0.4} ry={h * 0.36} {...s} />
         </g>
       );
-    }
-    case "utility": {
-      if (L < 4 || W < 3) return null;
+    case "basin":
       return (
         <g>
-          {[0, 1].map((i) => (
-            <g key={i}>
-              <rect x={0.3 + i * 2.4} y={0.3} width={2.2} height={2.2} {...s} />
-              <circle cx={1.4 + i * 2.4} cy={1.4} r={0.75} {...s} />
-            </g>
-          ))}
+          <rect width={w} height={h} rx={0.15} {...s} />
+          <ellipse cx={w / 2} cy={h / 2} rx={w * 0.34} ry={h * 0.32} {...s} />
         </g>
       );
-    }
-    case "balcony":
+    case "washer":
       return (
-        <rect x={0.35} y={0.35} width={Math.max(0, L - 0.7)} height={Math.max(0, W - 0.7)} fill="none" stroke={LINE} strokeWidth={THIN} strokeDasharray="0.3 0.2" />
+        <g>
+          <rect width={w} height={h} {...s} />
+          <circle cx={w / 2} cy={h / 2} r={Math.min(w, h) * 0.34} {...s} />
+        </g>
       );
     default:
-      return null;
+      return <rect width={w} height={h} rx={0.08} {...s} />;
   }
 }

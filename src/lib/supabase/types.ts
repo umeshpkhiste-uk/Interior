@@ -2547,6 +2547,7 @@ export type Database = {
           length_ft: number | null
           net_wall_area: number | null
           organization_id: string
+          plan_furniture: Json | null
           plan_rotation: number
           plan_x: number | null
           plan_y: number | null
@@ -2570,6 +2571,7 @@ export type Database = {
           length_ft?: number | null
           net_wall_area?: number | null
           organization_id: string
+          plan_furniture?: Json | null
           plan_rotation?: number
           plan_x?: number | null
           plan_y?: number | null
@@ -2593,6 +2595,7 @@ export type Database = {
           length_ft?: number | null
           net_wall_area?: number | null
           organization_id?: string
+          plan_furniture?: Json | null
           plan_rotation?: number
           plan_x?: number | null
           plan_y?: number | null

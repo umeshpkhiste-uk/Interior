@@ -1,5 +1,6 @@
 import { listRoomsForProject } from "@/lib/data/rooms";
-import { footprint, type FloorPlanRoom, type PlanRotation } from "@/lib/calculations/floor-plan";
+import { clampItem, defaultFurniture, footprint, type FloorPlanRoom, type PlanRotation } from "@/lib/calculations/floor-plan";
+import { furnitureItemSchema } from "@/lib/validations/floor-plan";
 
 export type MissingFloorPlanInput = {
   roomId: string | null;
@@ -48,10 +49,18 @@ export async function getFloorPlan(organizationId: string, projectId: string): P
         .filter((o) => o.opening_type === type)
         .flatMap((o) => Array.from({ length: o.quantity }, () => Number(o.width ?? 0)));
 
+    const savedFurniture = furnitureItemSchema.array().safeParse(row.plan_furniture);
+    const furniture = savedFurniture.success
+      ? savedFurniture.data.map((item) => clampItem(item, { lengthFt, widthFt }))
+      : defaultFurniture({ category: row.room_category, lengthFt, widthFt });
+
     const room: FloorPlanRoom = {
       id: row.id,
       name: row.room_name,
       category: row.room_category,
+      unitSystem: row.unit_system,
+      length: Number(row.length ?? 0),
+      width: Number(row.width ?? 0),
       lengthFt,
       widthFt,
       x: Number(row.plan_x ?? 0),
@@ -59,6 +68,7 @@ export async function getFloorPlan(organizationId: string, projectId: string): P
       rotation: (row.plan_rotation ?? 0) as PlanRotation,
       doorWidthsFt: widthsOf("door"),
       windowWidthsFt: widthsOf("window"),
+      furniture,
     };
     if (row.plan_x != null && row.plan_y != null) placed.push(room);
     else unplaced.push(room);
