@@ -6,7 +6,7 @@ import { getFloorPlan } from "@/lib/data/floor-plan";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ModuleHeader } from "@/components/layout/module-header";
 import { MODULE_HEADER_IMAGES } from "@/components/layout/module-header-images";
-import { FloorPlan2DSvg } from "@/components/design/floor-plan-2d-svg";
+import { FloorPlanEditor } from "@/components/design/floor-plan-editor";
 import { FloorPlanMissingInputs } from "@/components/design/floor-plan-missing-inputs";
 
 export default async function Design2DPage({
@@ -26,8 +26,8 @@ export default async function Design2DPage({
         icon={Square}
         kitLabel="Design • 2D Floor Plan"
         title="2D Design"
-        subtitle="A to-scale floor plan, auto-generated from each project's Room Measurements — nothing new to enter."
-        badges={["Rooms", "Auto-arranged", "To scale", "Doors & Windows"]}
+        subtitle="A to-scale floor plan generated from each project's Room Measurements — drag and rotate rooms to match the real layout."
+        badges={["To scale", "Drag & rotate", "Doors & Windows", "Furniture"]}
         image={MODULE_HEADER_IMAGES.blueprintTools}
       />
 
@@ -73,27 +73,34 @@ async function ProjectFloorPlan({
   projectId: string;
   projectName: string;
 }) {
-  const { layout, missing } = await getFloorPlan(organizationId, projectId);
+  const { rooms, missing } = await getFloorPlan(organizationId, projectId);
+  const totalAreaSqft = rooms.reduce((acc, r) => acc + r.lengthFt * r.widthFt, 0);
+  // Remount the editor whenever the saved layout or room set changes, so it starts from the server's state.
+  const layoutKey = rooms.map((r) => `${r.id}:${r.x}:${r.y}:${r.rotation}:${r.lengthFt}:${r.widthFt}`).join("|");
 
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-col gap-0.5">
           <p className="text-sm font-medium">{projectName}</p>
-          {layout && <p className="text-xs text-muted-foreground">{layout.totalAreaSqft.toFixed(0)} sqft across {layout.rooms.length} rooms</p>}
+          {rooms.length > 0 && (
+            <p className="text-xs text-muted-foreground">
+              {totalAreaSqft.toFixed(0)} sqft across {rooms.length} rooms
+            </p>
+          )}
         </div>
         <Link href="/design/2d" className="text-sm text-muted-foreground hover:text-foreground">
           Switch project
         </Link>
       </div>
 
-      {layout ? (
+      {rooms.length > 0 ? (
         <Card>
           <CardHeader>
             <CardTitle className="text-sm font-medium">Floor plan</CardTitle>
           </CardHeader>
           <CardContent>
-            <FloorPlan2DSvg layout={layout} />
+            <FloorPlanEditor key={layoutKey} projectId={projectId} initialRooms={rooms} />
           </CardContent>
         </Card>
       ) : (

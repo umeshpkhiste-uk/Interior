@@ -2547,6 +2547,9 @@ export type Database = {
           length_ft: number | null
           net_wall_area: number | null
           organization_id: string
+          plan_rotation: number
+          plan_x: number | null
+          plan_y: number | null
           project_id: string
           room_category: Database["public"]["Enums"]["room_category"]
           room_name: string
@@ -2567,6 +2570,9 @@ export type Database = {
           length_ft?: number | null
           net_wall_area?: number | null
           organization_id: string
+          plan_rotation?: number
+          plan_x?: number | null
+          plan_y?: number | null
           project_id: string
           room_category?: Database["public"]["Enums"]["room_category"]
           room_name: string
@@ -2587,6 +2593,9 @@ export type Database = {
           length_ft?: number | null
           net_wall_area?: number | null
           organization_id?: string
+          plan_rotation?: number
+          plan_x?: number | null
+          plan_y?: number | null
           project_id?: string
           room_category?: Database["public"]["Enums"]["room_category"]
           room_name?: string
