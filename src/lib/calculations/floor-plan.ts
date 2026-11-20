@@ -61,6 +61,62 @@ export function toLocalDelta(dx: number, dy: number, rotation: PlanRotation): { 
   }
 }
 
+/** A point in the room's own frame → plan (world) feet. */
+export function localToPlan(room: FloorPlanRoom, lx: number, ly: number): { x: number; y: number } {
+  const L = room.lengthFt;
+  const W = room.widthFt;
+  switch (room.rotation) {
+    case 90:
+      return { x: room.x + W - ly, y: room.y + lx };
+    case 180:
+      return { x: room.x + L - lx, y: room.y + W - ly };
+    case 270:
+      return { x: room.x + ly, y: room.y + L - lx };
+    default:
+      return { x: room.x + lx, y: room.y + ly };
+  }
+}
+
+/** A plan (world) point → the room's own frame. */
+export function planToLocal(room: FloorPlanRoom, px: number, py: number): { x: number; y: number } {
+  const L = room.lengthFt;
+  const W = room.widthFt;
+  const dx = px - room.x;
+  const dy = py - room.y;
+  switch (room.rotation) {
+    case 90:
+      return { x: dy, y: W - dx };
+    case 180:
+      return { x: L - dx, y: W - dy };
+    case 270:
+      return { x: L - dy, y: dx };
+    default:
+      return { x: dx, y: dy };
+  }
+}
+
+export function containsPoint(room: FloorPlanRoom, px: number, py: number): boolean {
+  const { w, h } = footprint(room);
+  return px >= room.x && px <= room.x + w && py >= room.y && py <= room.y + h;
+}
+
+/**
+ * Moves a furniture item into another room, keeping where it sits on the plan and
+ * which way it faces.
+ */
+export function transferItem(item: FurnitureItem, from: FloorPlanRoom, to: FloorPlanRoom): FurnitureItem {
+  const f = footprint(item);
+  const center = localToPlan(from, item.x + f.w / 2, item.y + f.h / 2);
+  const rotation = (((from.rotation + item.rotation - to.rotation) % 360) + 360) % 360 as PlanRotation;
+  const moved = { ...item, rotation };
+  const g = footprint(moved);
+  const local = planToLocal(to, center.x, center.y);
+  return clampItem({ ...moved, x: local.x - g.w / 2, y: local.y - g.h / 2 }, to);
+}
+
+/** Passages are paving around/between rooms: they never cut another room's walls. */
+export const isPassage = (room: Pick<FloorPlanRoom, "category">) => room.category === "passage";
+
 /** 10.5 → 10'-6" */
 export function formatFeetInches(feet: number): string {
   const totalInches = Math.round(feet * 12);
@@ -196,11 +252,11 @@ function itemPlanRect(room: FloorPlanRoom, item: FurnitureItem): Rect {
 
 /**
  * Centre point for a room's name + size label: the spot nearest the room's centre
- * whose label box doesn't sit on furniture (rugs don't count), else the centre.
+ * whose label box doesn't sit on furniture of any room (rugs don't count), else the centre.
  */
-export function labelAnchor(room: FloorPlanRoom, labelW: number, labelH: number): { x: number; y: number } {
+export function labelAnchor(room: FloorPlanRoom, labelW: number, labelH: number, rooms: FloorPlanRoom[] = [room]): { x: number; y: number } {
   const { w, h } = footprint(room);
-  const blockers = room.furniture.filter((f) => f.type !== "rug").map((f) => itemPlanRect(room, f));
+  const blockers = rooms.flatMap((r) => r.furniture.filter((f) => f.type !== "rug").map((f) => itemPlanRect(r, f)));
   const fractions = [0.5, 0.4, 0.6, 0.3, 0.7, 0.2, 0.8];
   const candidates = fractions
     .flatMap((fy) => fractions.map((fx) => ({ fx, fy })))
@@ -276,7 +332,7 @@ export function wallSegments(rooms: FloorPlanRoom[]): WallSegment[] {
       let spans: [number, number][] = [[line.from, line.to]];
 
       for (const b of rects) {
-        if (b === a) continue;
+        if (b === a || isPassage(b.room)) continue;
         const r = b.rect;
         const [lo, hi] = line.horizontal ? [r.y, r.y + r.h] : [r.x, r.x + r.w];
         const span: [number, number] = line.horizontal ? [r.x, r.x + r.w] : [r.y, r.y + r.h];
@@ -308,7 +364,7 @@ export function sharedWalls(room: FloorPlanRoom, rooms: FloorPlanRoom[]): Set<Wa
   const shared = new Set<Wall>();
   const touch = 0.15;
   for (const other of rooms) {
-    if (other.id === room.id) continue;
+    if (other.id === room.id || isPassage(other)) continue;
     const b = { ...footprint(other), x: other.x, y: other.y };
     const overlapX = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
     const overlapY = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);

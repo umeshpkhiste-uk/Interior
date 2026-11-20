@@ -8,14 +8,18 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   clampItem,
+  containsPoint,
   footprint,
   formatFeetInches,
+  isPassage,
   labelAnchor,
+  localToPlan,
   newFurnitureItem,
   rotationTransform,
   sharedWalls,
   toLocalDelta,
   toOwnWall,
+  transferItem,
   wallSegments,
   WALLS,
   type FloorPlanRoom,
@@ -26,11 +30,13 @@ import { toStandardFeet } from "@/lib/calculations/area";
 import {
   FURNITURE_LABELS,
   FURNITURE_TYPES,
+  PLAN_AREA_PRESETS,
   type FurnitureItem,
   type FurnitureType,
   type PlanPassage,
 } from "@/lib/validations/floor-plan";
-import { saveFloorPlanLayout, resetFloorPlanLayout } from "@/lib/actions/floor-plan";
+import { addFloorPlanArea, saveFloorPlanLayout, resetFloorPlanLayout } from "@/lib/actions/floor-plan";
+import { deleteRoom } from "@/lib/actions/rooms";
 import {
   DimensionLine,
   FLOOR_FILL,
@@ -180,7 +186,10 @@ export function FloorPlanEditor({
       const x = snapToGrid(drag.originX + local.dx);
       const y = snapToGrid(drag.originY + local.dy);
       const item = room.furniture.find((f) => f.id === drag.itemId);
-      if (item && (item.x !== x || item.y !== y)) patchItem(room.id, item.id, (f) => ({ ...f, x, y }));
+      // Unclamped while dragging so furniture can be carried into another room; settled on drop.
+      if (item && (item.x !== x || item.y !== y)) {
+        patchRoom(room.id, (r) => ({ furniture: r.furniture.map((f) => (f.id === item.id ? { ...f, x, y } : f)) }));
+      }
       return;
     }
 
@@ -194,7 +203,33 @@ export function FloorPlanEditor({
   function endDrag(e: ReactPointerEvent) {
     if (!drag || e.pointerId !== drag.pointerId) return;
     setDrag(null);
-    setFrame(frameFor(rooms, passage));
+    if (drag.itemId) dropItem(drag.roomId, drag.itemId);
+    else setFrame(frameFor(rooms, passage));
+  }
+
+  /** Keeps a dropped item in its room, or hands it to the room it was dropped into. */
+  function dropItem(roomId: string, itemId: string) {
+    const from = rooms.find((r) => r.id === roomId);
+    const item = from?.furniture.find((f) => f.id === itemId);
+    if (!from || !item) return;
+    const f = footprint(item);
+    const center = localToPlan(from, item.x + f.w / 2, item.y + f.h / 2);
+    const under = rooms.filter((r) => containsPoint(r, center.x, center.y));
+    const target = under.find((r) => r.id === from.id) ?? under.filter((r) => !isPassage(r)).at(-1) ?? under.at(-1);
+
+    if (!target || target.id === from.id) {
+      patchItem(from.id, item.id, (it) => it);
+      return;
+    }
+    const moved = transferItem(item, from, target);
+    commit(
+      rooms.map((r) => {
+        if (r.id === from.id) return { ...r, furniture: r.furniture.filter((it) => it.id !== item.id) };
+        if (r.id === target.id) return { ...r, furniture: [...r.furniture, moved] };
+        return r;
+      })
+    );
+    setSelection({ kind: "item", roomId: target.id, itemId: item.id });
   }
 
   function rotateSelection() {
@@ -307,12 +342,15 @@ export function FloorPlanEditor({
     setResetCount((n) => n + 1);
   }
 
-  function save() {
+  /** The current layout, shifted so the plan starts at 0,0 (that's how it's stored). */
+  function layoutPayload() {
     const minX = Math.min(...rooms.map((r) => r.x));
     const minY = Math.min(...rooms.map((r) => r.y));
     const initialById = new Map(initialRooms.map((r) => [r.id, r]));
-    startTransition(async () => {
-      const result = await saveFloorPlanLayout(projectId, {
+    return {
+      minX,
+      minY,
+      payload: {
         passage,
         rooms: rooms.map((r) => {
           const before = initialById.get(r.id);
@@ -327,12 +365,71 @@ export function FloorPlanEditor({
             ...(resized ? { size: { length: r.length, width: r.width } } : {}),
           };
         }),
-      });
+      },
+    };
+  }
+
+  /** Saves unsaved edits first so adding or removing an area doesn't throw them away. */
+  async function saveIfDirty(): Promise<boolean> {
+    if (!dirty) return true;
+    const result = await saveFloorPlanLayout(projectId, layoutPayload().payload);
+    if (result.error) toast.error(result.error);
+    return !result.error;
+  }
+
+  function save() {
+    startTransition(async () => {
+      const result = await saveFloorPlanLayout(projectId, layoutPayload().payload);
       if (result.error) {
         toast.error(result.error);
         return;
       }
       toast.success("Floor plan saved — room sizes updated on Room Measurements too");
+      router.refresh();
+    });
+  }
+
+  function addArea(key: string) {
+    const preset = PLAN_AREA_PRESETS.find((p) => p.key === key);
+    if (!preset) return;
+    const base = preset.label.split(" / ")[0];
+    const taken = new Set(rooms.map((r) => r.name.toLowerCase()));
+    let name = base;
+    for (let i = 2; taken.has(name.toLowerCase()); i++) name = `${base} ${i}`;
+    const { minX, minY } = layoutPayload();
+    const b = boundsOf(rooms);
+    startTransition(async () => {
+      if (!(await saveIfDirty())) return;
+      const result = await addFloorPlanArea(projectId, {
+        category: preset.category,
+        name,
+        lengthFt: preset.lengthFt,
+        widthFt: preset.widthFt,
+        x: b.maxX - minX + 1,
+        y: b.minY - minY,
+      });
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      toast.success(`${name} added on the right of the plan — drag it into place and set its size`);
+      router.refresh();
+    });
+  }
+
+  function removeSelectedRoom() {
+    if (!selectedRoom) return;
+    if (!window.confirm(`Remove "${selectedRoom.name}"? It is also deleted from Room Measurements.`)) return;
+    const roomId = selectedRoom.id;
+    startTransition(async () => {
+      if (!(await saveIfDirty())) return;
+      const result = await deleteRoom(roomId, projectId);
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      setSelection(null);
+      toast.success("Room removed");
       router.refresh();
     });
   }
@@ -367,6 +464,22 @@ export function FloorPlanEditor({
         <Button size="sm" variant="ghost" onClick={resetToAuto} disabled={pending}>
           <LayoutGrid className="size-4" /> Auto-arrange
         </Button>
+        <select
+          aria-label="Add area"
+          className="h-7 rounded-md border bg-background px-2 text-[0.8rem]"
+          value=""
+          disabled={pending}
+          onChange={(e) => {
+            if (e.target.value) addArea(e.target.value);
+          }}
+        >
+          <option value="">+ Add area (passage, WC…)</option>
+          {PLAN_AREA_PRESETS.map((p) => (
+            <option key={p.key} value={p.key}>
+              {p.label}
+            </option>
+          ))}
+        </select>
         {dirty && !pending && <span className="text-xs font-medium text-amber-700">Unsaved changes</span>}
       </div>
 
@@ -381,6 +494,7 @@ export function FloorPlanEditor({
         onDeleteItem={deleteSelectedItem}
         onCounterShape={setCounterShape}
         onToggleOpenSide={toggleOpenSide}
+        onRemoveRoom={removeSelectedRoom}
         passage={passage}
         onPassageChange={changePassage}
       />
@@ -401,10 +515,10 @@ export function FloorPlanEditor({
         >
           <PlanDefs />
           <rect x={frame.x} y={frame.y} width={frame.w} height={frame.h} fill={PAPER} />
-          <PassageArea bounds={boundsOf(rooms)} passage={passage} />
+          {WALLS.some((side) => passage[side] > 0) && <PassageArea bounds={boundsOf(rooms)} passage={passage} />}
           <PlanTitle rooms={rooms} passage={passage} projectName={projectName} />
 
-          {rooms.map((room) => {
+          {[...rooms].sort((a, b) => Number(isPassage(b)) - Number(isPassage(a))).map((room) => {
             const { w, h } = footprint(room);
             const roomSelected = selection?.kind === "room" && selection.roomId === room.id;
             return (
@@ -469,7 +583,7 @@ export function FloorPlanEditor({
             const fs = labelSize(room);
             const sizeText = `${formatFeetInches(room.lengthFt)} x ${formatFeetInches(room.widthFt)}`;
             const labelW = Math.max(room.name.length * fs * 0.72, sizeText.length * fs * 0.85 * 0.58);
-            const anchor = labelAnchor(room, labelW, fs * 2.4);
+            const anchor = labelAnchor(room, labelW, fs * 2.4, rooms);
             const cx = anchor.x;
             const cy = anchor.y - fs * 0.35;
             return (
@@ -538,6 +652,7 @@ function SelectionPanel({
   onDeleteItem,
   onCounterShape,
   onToggleOpenSide,
+  onRemoveRoom,
   passage,
   onPassageChange,
 }: {
@@ -550,6 +665,7 @@ function SelectionPanel({
   onDeleteItem: () => void;
   onCounterShape: (shape: "counter_l" | "counter_straight") => void;
   onToggleOpenSide: (side: Wall) => void;
+  onRemoveRoom: () => void;
   passage: PlanPassage;
   onPassageChange: (side: keyof PlanPassage, feet: number) => void;
 }) {
@@ -559,7 +675,8 @@ function SelectionPanel({
         <p>
           Click a room to move or resize it, or to open its walls. Drag rooms onto each other to join them — the wall between
           them disappears. Click furniture to move, rotate or remove it. Keys: arrows nudge (Shift = 1 ft), R rotates, Delete
-          removes furniture.
+          removes furniture. Drag furniture into another room or a passage to move it there. Use “+ Add area” for
+          passages, extra WCs, balconies and more.
         </p>
         <div className="flex flex-wrap items-end gap-3">
           <span className="pb-2 text-sm font-medium text-foreground">Outside passage (ft)</span>
@@ -649,6 +766,9 @@ function SelectionPanel({
           </select>
           <Button size="sm" variant="outline" onClick={onRotate} disabled={disabled}>
             <RotateCw className="size-4" /> Rotate room
+          </Button>
+          <Button size="sm" variant="outline" onClick={onRemoveRoom} disabled={disabled}>
+            <Trash2 className="size-4" /> Remove
           </Button>
         </div>
       </div>

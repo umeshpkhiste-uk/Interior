@@ -3,8 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireCurrentUserContext } from "@/lib/data/organization";
-import { updateRoom } from "@/lib/actions/rooms";
-import { floorPlanSaveSchema, type FloorPlanSaveInput } from "@/lib/validations/floor-plan";
+import { createRoom, updateRoom } from "@/lib/actions/rooms";
+import { floorPlanSaveSchema, newAreaSchema, type FloorPlanSaveInput, type NewAreaInput } from "@/lib/validations/floor-plan";
 import type { ActionResult } from "@/lib/actions/clients";
 
 const round2 = (v: number) => Math.round(v * 100) / 100;
@@ -86,4 +86,41 @@ export async function resetFloorPlanLayout(projectId: string): Promise<ActionRes
 
   revalidatePath("/design/2d");
   return { error: null, data: undefined };
+}
+
+/**
+ * Adds a space (passage, WC, balcony…) straight from the plan. It is a normal room,
+ * so it also appears on Room Measurements; passages start with no walls.
+ */
+export async function addFloorPlanArea(projectId: string, input: NewAreaInput): Promise<ActionResult<{ id: string }>> {
+  const parsed = newAreaSchema.safeParse(input);
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid area" };
+  const area = parsed.data;
+
+  const created = await createRoom(projectId, {
+    roomName: area.name,
+    roomCategory: area.category,
+    unitSystem: "feet_inches",
+    length: area.lengthFt,
+    width: area.widthFt,
+    height: 10,
+  });
+  if (created.error !== null) return { error: created.error };
+  const roomId = created.data.id;
+
+  const ctx = await requireCurrentUserContext();
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("project_rooms")
+    .update({
+      plan_x: round2(area.x),
+      plan_y: round2(area.y),
+      plan_open_walls: area.category === "passage" ? ["top", "right", "bottom", "left"] : [],
+    })
+    .eq("id", roomId)
+    .eq("organization_id", ctx.organizationId);
+  if (error) return { error: error.message };
+
+  revalidatePath("/design/2d");
+  return { error: null, data: { id: roomId } };
 }

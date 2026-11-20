@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ROOM_CATEGORIES } from "@/lib/validations/room";
 
 export const FURNITURE_TYPES = [
   "bed", "side_table", "wardrobe", "sofa", "coffee_table", "tv_unit", "dining_set", "study_table",
@@ -104,3 +105,24 @@ export const floorPlanSaveSchema = z.object({
 });
 
 export type FloorPlanSaveInput = z.infer<typeof floorPlanSaveSchema>;
+
+/** Spaces that can be added straight from the 2D plan, with their starting size in feet. */
+export const PLAN_AREA_PRESETS = [
+  { key: "passage", category: "passage", label: "Passage", lengthFt: 3, widthFt: 10 },
+  { key: "wc", category: "bathroom", label: "WC / Toilet", lengthFt: 4, widthFt: 5 },
+  { key: "balcony", category: "balcony", label: "Balcony", lengthFt: 10, widthFt: 4 },
+  { key: "utility", category: "utility", label: "Utility", lengthFt: 6, widthFt: 4 },
+  { key: "store", category: "store_room", label: "Store room", lengthFt: 5, widthFt: 5 },
+  { key: "lobby", category: "lobby", label: "Lobby / Foyer", lengthFt: 6, widthFt: 6 },
+] as const;
+
+export const newAreaSchema = z.object({
+  category: z.enum(ROOM_CATEGORIES),
+  name: z.string().trim().min(1).max(60),
+  lengthFt: z.number().positive().max(200),
+  widthFt: z.number().positive().max(200),
+  x: z.number().finite(),
+  y: z.number().finite(),
+});
+
+export type NewAreaInput = z.infer<typeof newAreaSchema>;
