@@ -1,10 +1,27 @@
 "use client";
 
-import { useMemo, useRef, useState, useTransition, type PointerEvent as ReactPointerEvent, type KeyboardEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+  type PointerEvent as ReactPointerEvent,
+  type KeyboardEvent,
+} from "react";
 import { useRouter } from "next/navigation";
 import { RotateCw, Save, Undo2, LayoutGrid, Trash2, DoorOpen, AppWindow } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import {
   clampItem,
@@ -158,6 +175,11 @@ export function FloorPlanEditor({
   const [dirty, setDirty] = useState(false);
   const [resetCount, setResetCount] = useState(0);
   const [pending, startTransition] = useTransition();
+  const [leaveTarget, setLeaveTarget] = useState<string | null>(null);
+  const dirtyRef = useRef(false);
+  const payloadRef = useRef<() => ReturnType<typeof layoutPayload>["payload"]>(() => {
+    throw new Error("layout not ready");
+  });
 
   const walls = useMemo(() => wallSegments(rooms), [rooms]);
   const sharedWallsByRoom = useMemo(() => new Map(rooms.map((r) => [r.id, sharedWalls(r, rooms)])), [rooms]);
@@ -528,7 +550,7 @@ export function FloorPlanEditor({
     setRooms(initialRooms);
     setPassage(initialPassage);
     setFrame(frameFor(initialRooms, initialPassage));
-    setDirty(false);
+    markSaved();
     setResetCount((n) => n + 1);
   }
 
@@ -574,10 +596,16 @@ export function FloorPlanEditor({
   }
 
   /** Saves unsaved edits first so adding or removing an area doesn't throw them away. */
+  function markSaved() {
+    dirtyRef.current = false;
+    setDirty(false);
+  }
+
   async function saveIfDirty(): Promise<boolean> {
     if (!dirty) return true;
     const result = await saveFloorPlanLayout(projectId, layoutPayload().payload);
     if (result.error) toast.error(result.error);
+    else markSaved();
     return !result.error;
   }
 
@@ -588,9 +616,34 @@ export function FloorPlanEditor({
         toast.error(result.error);
         return;
       }
+      markSaved();
       toast.success("Floor plan saved — room sizes updated on Room Measurements too");
       router.refresh();
     });
+  }
+
+  function saveAndLeave() {
+    const target = leaveTarget;
+    if (!target) return;
+    startTransition(async () => {
+      const result = await saveFloorPlanLayout(projectId, layoutPayload().payload);
+      if (result.error) {
+        toast.error(`Your changes couldn't be saved: ${result.error}`);
+        return;
+      }
+      markSaved();
+      setLeaveTarget(null);
+      toast.success("Floor plan saved");
+      router.push(target);
+    });
+  }
+
+  function leaveWithoutSaving() {
+    const target = leaveTarget;
+    if (!target) return;
+    markSaved();
+    setLeaveTarget(null);
+    router.push(target);
   }
 
   function addArea(key: string) {
@@ -646,10 +699,57 @@ export function FloorPlanEditor({
         toast.error(result.error);
         return;
       }
+      markSaved();
       toast.success("Layout reset to automatic arrangement");
       router.refresh();
     });
   }
+
+  useEffect(() => {
+    dirtyRef.current = dirty;
+    payloadRef.current = () => layoutPayload().payload;
+  });
+
+  // Closing the tab, reloading or typing a new address: the browser shows its own "Leave site?" prompt.
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
+
+  // Clicking any link inside the app (sidebar, header, project links): ask before leaving.
+  useEffect(() => {
+    if (!dirty) return;
+    const intercept = (e: MouseEvent) => {
+      if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      const link = (e.target as Element | null)?.closest?.("a[href]") as HTMLAnchorElement | null;
+      if (!link || link.target === "_blank" || link.hasAttribute("download")) return;
+      const url = new URL(link.href, window.location.href);
+      if (url.origin !== window.location.origin) return;
+      if (url.pathname === window.location.pathname && url.search === window.location.search) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setLeaveTarget(url.pathname + url.search + url.hash);
+    };
+    document.addEventListener("click", intercept, true);
+    return () => document.removeEventListener("click", intercept, true);
+  }, [dirty]);
+
+  // Any other way of leaving (browser back/forward, search, sign-out): save automatically on the way out.
+  useEffect(
+    () => () => {
+      if (!dirtyRef.current) return;
+      void saveFloorPlanLayout(projectId, payloadRef.current()).then((result) => {
+        if (result.error) toast.error(`Your floor plan changes couldn't be saved: ${result.error}`);
+        else toast.success("Your floor plan changes were saved automatically");
+      });
+    },
+    [projectId]
+  );
 
   const labelSize = (r: FloorPlanRoom) => {
     const { w, h } = footprint(r);
@@ -886,6 +986,27 @@ export function FloorPlanEditor({
           )}
         </svg>
       </div>
+
+      <AlertDialog open={leaveTarget !== null} onOpenChange={(open) => !open && !pending && setLeaveTarget(null)}>
+        <AlertDialogContent className="sm:max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Save your floor plan changes?</AlertDialogTitle>
+            <AlertDialogDescription>
+              You have unsaved changes to this floor plan. Save them before you continue, or discard them to keep the last
+              saved version.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={pending}>Stay on this page</AlertDialogCancel>
+            <Button variant="ghost" onClick={leaveWithoutSaving} disabled={pending}>
+              Discard changes
+            </Button>
+            <Button onClick={saveAndLeave} disabled={pending}>
+              {pending ? "Saving..." : "Save and continue"}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
