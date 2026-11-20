@@ -133,6 +133,21 @@ export function clampItem(item: FurnitureItem, room: Pick<FloorPlanRoom, "length
   };
 }
 
+export const MIN_ITEM_FT = 0.5;
+
+/** Sets an item's own width/depth, keeping it within the room and its top-left corner in place. */
+export function resizeItem(item: FurnitureItem, room: Pick<FloorPlanRoom, "lengthFt" | "widthFt">, w: number, h: number): FurnitureItem {
+  const turned = item.rotation === 90 || item.rotation === 270;
+  const maxW = turned ? room.widthFt : room.lengthFt;
+  const maxH = turned ? room.lengthFt : room.widthFt;
+  const sized = {
+    ...item,
+    w: Math.min(Math.max(w, MIN_ITEM_FT), maxW),
+    h: Math.min(Math.max(h, MIN_ITEM_FT), maxH),
+  };
+  return clampItem(sized, room);
+}
+
 export function newFurnitureItem(type: FurnitureType, room: Pick<FloorPlanRoom, "lengthFt" | "widthFt">, id: string): FurnitureItem {
   const size = FURNITURE_SIZES[type];
   const w = Math.min(size.w, Math.max(1, room.lengthFt - 0.4));

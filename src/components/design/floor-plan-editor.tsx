@@ -15,6 +15,7 @@ import {
   labelAnchor,
   localToPlan,
   newFurnitureItem,
+  resizeItem,
   rotationTransform,
   sharedWalls,
   toLocalDelta,
@@ -58,7 +59,17 @@ const SELECT_COLOR = "#d97706";
 const PAPER = "#fbf8f3";
 
 type Selection = { kind: "room"; roomId: string } | { kind: "item"; roomId: string; itemId: string } | null;
-type Drag = { roomId: string; itemId: string | null; pointerId: number; startX: number; startY: number; originX: number; originY: number };
+type Drag = {
+  mode: "move" | "resize";
+  roomId: string;
+  itemId: string | null;
+  pointerId: number;
+  startX: number;
+  startY: number;
+  /** Start position for a move; start footprint width/depth for a resize. */
+  originX: number;
+  originY: number;
+};
 
 function boundsOf(rooms: FloorPlanRoom[]) {
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
@@ -164,13 +175,20 @@ export function FloorPlanEditor({
     return { x: p.x, y: p.y };
   }
 
-  function startDrag(e: ReactPointerEvent, roomId: string, itemId: string | null, originX: number, originY: number) {
+  function startDrag(
+    e: ReactPointerEvent,
+    roomId: string,
+    itemId: string | null,
+    originX: number,
+    originY: number,
+    mode: Drag["mode"] = "move"
+  ) {
     e.stopPropagation();
     svgRef.current?.setPointerCapture(e.pointerId);
     svgRef.current?.focus({ preventScroll: true });
     const p = toPlanCoords(e);
     setSelection(itemId ? { kind: "item", roomId, itemId } : { kind: "room", roomId });
-    setDrag({ roomId, itemId, pointerId: e.pointerId, startX: p.x, startY: p.y, originX, originY });
+    setDrag({ mode, roomId, itemId, pointerId: e.pointerId, startX: p.x, startY: p.y, originX, originY });
   }
 
   function handlePointerMove(e: ReactPointerEvent) {
@@ -180,6 +198,18 @@ export function FloorPlanEditor({
     const p = toPlanCoords(e);
     const dx = p.x - drag.startX;
     const dy = p.y - drag.startY;
+
+    if (drag.itemId && drag.mode === "resize") {
+      const item = room.furniture.find((f) => f.id === drag.itemId);
+      if (!item) return;
+      const local = toLocalDelta(dx, dy, room.rotation);
+      const fpW = snapToGrid(drag.originX + local.dx);
+      const fpH = snapToGrid(drag.originY + local.dy);
+      const turned = item.rotation === 90 || item.rotation === 270;
+      const [w, h] = turned ? [fpH, fpW] : [fpW, fpH];
+      if (w !== item.w || h !== item.h) patchItem(room.id, item.id, (f, r) => resizeItem(f, r, w, h));
+      return;
+    }
 
     if (drag.itemId) {
       const local = toLocalDelta(dx, dy, room.rotation);
@@ -203,9 +233,23 @@ export function FloorPlanEditor({
   function endDrag(e: ReactPointerEvent) {
     if (!drag || e.pointerId !== drag.pointerId) return;
     setDrag(null);
-    if (drag.itemId) dropItem(drag.roomId, drag.itemId);
-    else setFrame(frameFor(rooms, passage));
+    if (drag.itemId && drag.mode === "move") dropItem(drag.roomId, drag.itemId);
+    else if (!drag.itemId) setFrame(frameFor(rooms, passage));
   }
+
+  function setItemSize(field: "w" | "h", value: number) {
+    if (!selectedRoom || !selectedItem) return;
+    patchItem(selectedRoom.id, selectedItem.id, (f, r) =>
+      resizeItem(f, r, field === "w" ? value : f.w, field === "h" ? value : f.h)
+    );
+  }
+
+  function handleAddChoice(value: string) {
+    const [kind, key] = value.split(":");
+    if (kind === "area") addArea(key);
+    else if (kind === "item") addFurniture(key as FurnitureType);
+  }
+
 
   /** Keeps a dropped item in its room, or hands it to the room it was dropped into. */
   function dropItem(roomId: string, itemId: string) {
@@ -218,10 +262,13 @@ export function FloorPlanEditor({
     const target = under.find((r) => r.id === from.id) ?? under.filter((r) => !isPassage(r)).at(-1) ?? under.at(-1);
 
     if (!target || target.id === from.id) {
-      patchItem(from.id, item.id, (it) => it);
+      const settled = clampItem(item, from);
+      if (settled.x !== item.x || settled.y !== item.y) patchItem(from.id, item.id, () => settled);
       return;
     }
-    const moved = transferItem(item, from, target);
+    // Default furniture ids ("bed", "wc"…) repeat across rooms, so keep ids unique within the target room.
+    const id = target.furniture.some((f) => f.id === item.id) ? crypto.randomUUID() : item.id;
+    const moved = { ...transferItem(item, from, target), id };
     commit(
       rooms.map((r) => {
         if (r.id === from.id) return { ...r, furniture: r.furniture.filter((it) => it.id !== item.id) };
@@ -229,7 +276,7 @@ export function FloorPlanEditor({
         return r;
       })
     );
-    setSelection({ kind: "item", roomId: target.id, itemId: item.id });
+    setSelection({ kind: "item", roomId: target.id, itemId: id });
   }
 
   function rotateSelection() {
@@ -465,32 +512,41 @@ export function FloorPlanEditor({
           <LayoutGrid className="size-4" /> Auto-arrange
         </Button>
         <select
-          aria-label="Add area"
+          aria-label="Add area or furniture"
           className="h-7 rounded-md border bg-background px-2 text-[0.8rem]"
           value=""
           disabled={pending}
           onChange={(e) => {
-            if (e.target.value) addArea(e.target.value);
+            if (e.target.value) handleAddChoice(e.target.value);
           }}
         >
-          <option value="">+ Add area (passage, WC…)</option>
-          {PLAN_AREA_PRESETS.map((p) => (
-            <option key={p.key} value={p.key}>
-              {p.label}
-            </option>
-          ))}
+          <option value="">+ Add area or furniture…</option>
+          <optgroup label="Areas (passage, WC…)">
+            {PLAN_AREA_PRESETS.map((p) => (
+              <option key={p.key} value={`area:${p.key}`}>
+                {p.label}
+              </option>
+            ))}
+          </optgroup>
+          <optgroup label={selectedRoom ? `Furniture → ${selectedRoom.name}` : "Furniture (select a room first)"}>
+            {FURNITURE_TYPES.map((t) => (
+              <option key={t} value={`item:${t}`} disabled={!selectedRoom}>
+                {FURNITURE_LABELS[t]}
+              </option>
+            ))}
+          </optgroup>
         </select>
         {dirty && !pending && <span className="text-xs font-medium text-amber-700">Unsaved changes</span>}
       </div>
 
       <SelectionPanel
-        key={`${selection?.roomId ?? "none"}-${resetCount}`}
+        key={`${selection?.roomId ?? "none"}-${selection?.kind === "item" ? selection.itemId : ""}-${resetCount}`}
         room={selectedRoom}
         item={selectedItem}
         disabled={pending}
         onRotate={rotateSelection}
         onResize={resizeRoom}
-        onAddFurniture={addFurniture}
+        onItemSize={setItemSize}
         onDeleteItem={deleteSelectedItem}
         onCounterShape={setCounterShape}
         onToggleOpenSide={toggleOpenSide}
@@ -539,7 +595,7 @@ export function FloorPlanEditor({
           {rooms.map((room) => (
             <g key={`furniture-${room.id}`} transform={`translate(${room.x} ${room.y}) ${localTransform(room)}`}>
               {drawOrder(room.furniture).map((item) => {
-                const itemSelected = selection?.kind === "item" && selection.itemId === item.id;
+                const itemSelected = selection?.kind === "item" && selection.roomId === room.id && selection.itemId === item.id;
                 return (
                   <g
                     key={item.id}
@@ -598,6 +654,26 @@ export function FloorPlanEditor({
             );
           })}
 
+          {selectedRoom && selectedItem && (
+            <g transform={`translate(${selectedRoom.x} ${selectedRoom.y}) ${localTransform(selectedRoom)}`}>
+              <circle
+                cx={selectedItem.x + footprint(selectedItem).w}
+                cy={selectedItem.y + footprint(selectedItem).h}
+                r={0.32}
+                fill="#fff"
+                stroke={SELECT_COLOR}
+                strokeWidth={0.08}
+                className="cursor-nwse-resize"
+                style={{ touchAction: "none" }}
+                aria-label={`Resize ${FURNITURE_LABELS[selectedItem.type]}`}
+                onPointerDown={(e) => {
+                  const fp = footprint(selectedItem);
+                  startDrag(e, selectedRoom.id, selectedItem.id, fp.w, fp.h, "resize");
+                }}
+              />
+            </g>
+          )}
+
           {selection?.kind === "room" && selectedRoom && (
             <rect
               x={selectedRoom.x - WALL_FT}
@@ -639,7 +715,7 @@ function PlanTitle({ rooms, passage, projectName }: { rooms: FloorPlanRoom[]; pa
   );
 }
 
-const PANEL = "flex min-h-[7rem] flex-col justify-center gap-2 rounded-lg border px-3 py-2";
+const PANEL = "flex min-h-[8.5rem] flex-col justify-center gap-2 rounded-lg border px-3 py-2";
 const SIDE_LABELS: Record<Wall, string> = { top: "Top", right: "Right", bottom: "Bottom", left: "Left" };
 
 function SelectionPanel({
@@ -648,7 +724,7 @@ function SelectionPanel({
   disabled,
   onRotate,
   onResize,
-  onAddFurniture,
+  onItemSize,
   onDeleteItem,
   onCounterShape,
   onToggleOpenSide,
@@ -661,7 +737,7 @@ function SelectionPanel({
   disabled: boolean;
   onRotate: () => void;
   onResize: (roomId: string, field: "length" | "width", value: number) => void;
-  onAddFurniture: (type: FurnitureType) => void;
+  onItemSize: (field: "w" | "h", value: number) => void;
   onDeleteItem: () => void;
   onCounterShape: (shape: "counter_l" | "counter_straight") => void;
   onToggleOpenSide: (side: Wall) => void;
@@ -675,8 +751,8 @@ function SelectionPanel({
         <p>
           Click a room to move or resize it, or to open its walls. Drag rooms onto each other to join them — the wall between
           them disappears. Click furniture to move, rotate or remove it. Keys: arrows nudge (Shift = 1 ft), R rotates, Delete
-          removes furniture. Drag furniture into another room or a passage to move it there. Use “+ Add area” for
-          passages, extra WCs, balconies and more.
+          removes furniture. Drag furniture into another room or a passage to move it there. Use “+ Add area or
+          furniture” for passages, extra WCs, balconies and furniture.
         </p>
         <div className="flex flex-wrap items-end gap-3">
           <span className="pb-2 text-sm font-medium text-foreground">Outside passage (ft)</span>
@@ -700,8 +776,12 @@ function SelectionPanel({
     return (
       <div className={`${PANEL} bg-muted/30`}>
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-sm font-medium">{FURNITURE_LABELS[item.type]}</span>
-          <span className="text-xs text-muted-foreground">in {room.name} — drag to move</span>
+          <div className="flex flex-col">
+            <span className="text-sm font-medium">{FURNITURE_LABELS[item.type]}</span>
+            <span className="text-xs text-muted-foreground">in {room.name} — drag to move, drag the corner dot to resize</span>
+          </div>
+          <DimensionInput label="Width (ft)" value={item.w} onCommit={(v) => onItemSize("w", v)} disabled={disabled} />
+          <DimensionInput label="Depth (ft)" value={item.h} onCommit={(v) => onItemSize("h", v)} disabled={disabled} />
           <div className="ml-auto flex flex-wrap items-center gap-2">
             {isCounter && (
               <div className="flex items-center gap-1 rounded-md border bg-background p-0.5">
@@ -748,22 +828,6 @@ function SelectionPanel({
         <DimensionInput label={`Length (${unit})`} value={room.length} onCommit={(v) => onResize(room.id, "length", v)} disabled={disabled} />
         <DimensionInput label={`Width (${unit})`} value={room.width} onCommit={(v) => onResize(room.id, "width", v)} disabled={disabled} />
         <div className="ml-auto flex flex-wrap items-center gap-2">
-          <select
-            aria-label="Add furniture"
-            className="h-8 rounded-md border bg-background px-2 text-sm"
-            value=""
-            disabled={disabled}
-            onChange={(e) => {
-              if (e.target.value) onAddFurniture(e.target.value as FurnitureType);
-            }}
-          >
-            <option value="">+ Add furniture…</option>
-            {FURNITURE_TYPES.map((t) => (
-              <option key={t} value={t}>
-                {FURNITURE_LABELS[t]}
-              </option>
-            ))}
-          </select>
           <Button size="sm" variant="outline" onClick={onRotate} disabled={disabled}>
             <RotateCw className="size-4" /> Rotate room
           </Button>
@@ -809,6 +873,7 @@ function DimensionInput({
   allowZero?: boolean;
 }) {
   const [text, setText] = useState(String(value));
+  const [editing, setEditing] = useState(false);
   return (
     <label className="flex flex-col gap-1 text-xs text-muted-foreground">
       {label}
@@ -818,14 +883,18 @@ function DimensionInput({
         min={allowZero ? 0 : 0.1}
         step={0.25}
         className="h-8 w-20"
-        value={text}
+        value={editing ? text : String(Math.round(value * 100) / 100)}
+        onFocus={() => {
+          setText(String(Math.round(value * 100) / 100));
+          setEditing(true);
+        }}
         disabled={disabled}
         onChange={(e) => {
           setText(e.target.value);
           const n = Number(e.target.value);
           if (e.target.value !== "" && Number.isFinite(n) && (allowZero ? n >= 0 : n > 0) && n <= (allowZero ? 50 : 200)) onCommit(n);
         }}
-        onBlur={() => setText(String(value))}
+        onBlur={() => setEditing(false)}
       />
     </label>
   );
