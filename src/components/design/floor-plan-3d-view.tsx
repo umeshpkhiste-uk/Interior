@@ -1075,7 +1075,6 @@ function FloorPlane({
   selected = false,
   onClick,
   onDoubleClick,
-  onHover,
 }: {
   kind: FloorKind;
   x: number;
@@ -1087,7 +1086,6 @@ function FloorPlane({
   selected?: boolean;
   onClick?: (e: ThreeEvent<MouseEvent>) => void;
   onDoubleClick?: (e: ThreeEvent<MouseEvent>) => void;
-  onHover?: (over: boolean) => void;
 }) {
   const map = useMemo(() => {
     const t = textures[kind].clone();
@@ -1102,14 +1100,6 @@ function FloorPlane({
       receiveShadow
       onClick={onClick}
       onDoubleClick={onDoubleClick}
-      onPointerOver={
-        onHover &&
-        ((e) => {
-          e.stopPropagation();
-          onHover(true);
-        })
-      }
-      onPointerOut={onHover && (() => onHover(false))}
     >
       <planeGeometry args={[w, d]} />
       <meshStandardMaterial
@@ -1253,8 +1243,23 @@ const Scene = memo(function Scene({
   };
   // Room names and sizes show only for the room under the pointer.
   const [hoverId, setHoverId] = useState<string | null>(null);
-  const hover = (roomId: string) => (over: boolean) =>
-    setHoverId((current) => (over ? roomId : current === roomId ? null : current));
+  // Whatever the pointer is on (floor, wall or furniture), the room is the one holding the
+  // nearest hit point; walls count for the room whose side you're looking at.
+  const hoverAt = (e: ThreeEvent<PointerEvent>) => {
+    e.stopPropagation();
+    const p = e.eventObject.worldToLocal(e.point.clone());
+    const topFirst = [...floorOrder].reverse();
+    // The outside face of a wall sits half a wall thickness beyond the room's edge.
+    const near = (r: FloorPlanRoom) => {
+      const { w, h } = footprint(r);
+      return Math.hypot(Math.max(r.x - p.x, 0, p.x - r.x - w), Math.max(r.y - p.z, 0, p.z - r.y - h));
+    };
+    const room =
+      topFirst.find((r) => containsPoint(r, p.x, p.z)) ??
+      topFirst.filter((r) => near(r) <= WALL_FT).sort((a, b) => near(a) - near(b))[0];
+    const id = room?.id ?? null;
+    setHoverId((current) => (current === id ? current : id));
+  };
   const standAt = (roomId: string | null) => (e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation();
     onWalkTo(e.point.clone(), roomId);
@@ -1277,7 +1282,7 @@ const Scene = memo(function Scene({
   const floorOrder = [...rooms].sort((a, b) => Number(isPassage(b)) - Number(isPassage(a)));
 
   return (
-    <>
+    <group onPointerMove={hoverAt} onPointerLeave={() => setHoverId(null)}>
       <mesh position={[(plot.minX + plot.maxX) / 2, -0.02, (plot.minY + plot.maxY) / 2]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
         <planeGeometry args={[(plot.maxX - plot.minX) * 6 + 60, (plot.maxY - plot.minY) * 6 + 60]} />
         <meshStandardMaterial color="#e9e3d8" roughness={1} />
@@ -1314,7 +1319,6 @@ const Scene = memo(function Scene({
             selected={room.id === selectedId}
             onClick={pick(room.id)}
             onDoubleClick={standAt(room.id)}
-            onHover={hover(room.id)}
           />
         );
       })}
@@ -1386,7 +1390,7 @@ const Scene = memo(function Scene({
             </Html>
           );
         })}
-    </>
+    </group>
   );
 });
 
