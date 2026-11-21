@@ -1,10 +1,27 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Canvas, useThree, type ThreeEvent } from "@react-three/fiber";
-import { Html, OrbitControls } from "@react-three/drei";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Canvas, useFrame, useThree, type ThreeEvent } from "@react-three/fiber";
+import { CameraControls, Html } from "@react-three/drei";
+import CameraControlsImpl from "camera-controls";
 import * as THREE from "three";
-import { Box as BoxIcon, Check, Download, Eye, Layers, Paintbrush, Scan, SquareDashed } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  Box as BoxIcon,
+  Check,
+  Download,
+  Eye,
+  Footprints,
+  Layers,
+  Paintbrush,
+  Play,
+  RotateCcw,
+  RotateCw,
+  Scan,
+  Square,
+  SquareDashed,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -31,7 +48,33 @@ import { cn } from "@/lib/utils";
 import { floorKind, HEDGE_FT, WALL_FT, type FloorKind } from "./floor-plan-symbols";
 import { Furniture3D } from "./floor-plan-3d-models";
 
-type CameraView = "iso" | "top" | "front";
+type CameraView = "walk" | "iso" | "top" | "front" | "custom";
+/** Height slider stops: 0 = standing in a room, 100 = straight down. */
+const LEVEL_EYE = 0;
+const LEVEL_FRONT = 30;
+const LEVEL_ISO = 55;
+const EYE_FT = 5.25;
+/** At eye level the orbit target sits this far ahead, so dragging turns the head. */
+const LOOK_FT = 0.1;
+const WALK_SPEED = 6;
+const TURN_SPEED = 1.5;
+const ORBIT_FOV = 40;
+const WALK_FOV = 62;
+type WalkKey = "forward" | "back" | "left" | "right" | "turnLeft" | "turnRight" | "fast";
+const KEY_MAP: Record<string, WalkKey> = {
+  ArrowUp: "forward",
+  KeyW: "forward",
+  ArrowDown: "back",
+  KeyS: "back",
+  KeyA: "left",
+  KeyD: "right",
+  ArrowLeft: "turnLeft",
+  KeyQ: "turnLeft",
+  ArrowRight: "turnRight",
+  KeyE: "turnRight",
+  ShiftLeft: "fast",
+  ShiftRight: "fast",
+};
 const CUTAWAY_FT = 3;
 const EXTERIOR_WALL_COLOR = "#e9e2d6";
 const SAVE_DELAY_MS = 400;
@@ -106,18 +149,187 @@ export function FloorPlan3DView({
 
   const selectedRoom = rooms.find((r) => r.id === selectedId) ?? null;
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const controlsRef = useRef<CameraControlsImpl | null>(null);
+  const keys = useRef(new Set<WalkKey>());
+  const tourRef = useRef(0);
+  const eyePose = useRef<Pose | null>(null);
+  const [level, setLevel] = useState(LEVEL_ISO);
   const [view, setView] = useState<CameraView>("iso");
-  const [viewVersion, setViewVersion] = useState(0);
+  const [touring, setTouring] = useState(false);
   const [cutaway, setCutaway] = useState(true);
   const [labels, setLabels] = useState(true);
+  const walk = level === LEVEL_EYE;
 
   const building = useMemo(() => boundsOf(rooms), [rooms]);
-  const center = { x: (building.minX + building.maxX) / 2, z: (building.minY + building.maxY) / 2 };
+  const center = useMemo(
+    () => ({ x: (building.minX + building.maxX) / 2, z: (building.minY + building.maxY) / 2 }),
+    [building]
+  );
   const span = Math.max(building.maxX - building.minX + passage.left + passage.right, building.maxY - building.minY + passage.top + passage.bottom, 10);
+  const walkArea = useMemo(
+    () =>
+      new THREE.Box3(
+        new THREE.Vector3(building.minX - passage.left - center.x - 2, -1, building.minY - passage.top - center.z - 2),
+        new THREE.Vector3(building.maxX + passage.right - center.x + 2, 12, building.maxY + passage.bottom - center.z + 2)
+      ),
+    [building, passage, center]
+  );
+  const indoorRooms = useMemo(() => {
+    const inside = rooms.filter((r) => !isPassage(r));
+    return inside.length > 0 ? inside : rooms;
+  }, [rooms]);
+  const [walkRoomId, setWalkRoomId] = useState<string | null>(() => largestRoom(indoorRooms)?.id ?? null);
+  const walkRoom = indoorRooms.find((r) => r.id === walkRoomId) ?? largestRoom(indoorRooms);
+
+  const configure = useCallback(
+    (c: CameraControlsImpl, eye: boolean) => applyCameraMode(c, eye, eye ? walkArea : null, span),
+    [walkArea, span]
+  );
+
+  function eyeOf(room: FloorPlanRoom | null | undefined): Pose {
+    return room ? roomEyePose(room, center) : { pos: [0, EYE_FT, span / 3], target: [0, EYE_FT - 0.015, span / 3 - LOOK_FT] };
+  }
+
+  function currentPose(c: CameraControlsImpl): Pose {
+    const p = c.getPosition(new THREE.Vector3(), true);
+    const t = c.getTarget(new THREE.Vector3(), true);
+    return { pos: [p.x, p.y, p.z], target: [t.x, t.y, t.z] };
+  }
+
+  /** Moves the camera along the ground → bird's-eye → top path. 0 = eye level, 100 = straight down. */
+  function goToLevel(next: number, opts: { room?: FloorPlanRoom } = {}) {
+    const c = controlsRef.current;
+    if (!c) return;
+    // Leaving eye level keeps the spot you were standing at as the bottom of the path.
+    if (walk && next !== LEVEL_EYE) eyePose.current = currentPose(c);
+    if (opts.room || !eyePose.current) eyePose.current = eyeOf(opts.room ?? walkRoom);
+    const eye = eyePose.current;
+    const iso = overviewPose("iso", span);
+    const top = overviewPose("top", span);
+    const [a, b, u] = next <= LEVEL_ISO ? [eye, iso, next / LEVEL_ISO] : [iso, top, (next - LEVEL_ISO) / (100 - LEVEL_ISO)];
+    configure(c, next === LEVEL_EYE);
+    setLevel(next);
+    setView(next === LEVEL_EYE ? "walk" : next === LEVEL_ISO ? "iso" : next === 100 ? "top" : "custom");
+    void c.lerpLookAt(...a.pos, ...a.target, ...b.pos, ...b.target, u, true);
+  }
+
+  function stopTour() {
+    if (tourRef.current % 2 === 1) {
+      tourRef.current++;
+      setTouring(false);
+    }
+  }
 
   function showView(next: CameraView) {
-    setView(next);
-    setViewVersion((n) => n + 1);
+    stopTour();
+    if (next === "walk") return goToLevel(LEVEL_EYE);
+    if (next === "iso") return goToLevel(LEVEL_ISO);
+    if (next === "top") return goToLevel(100);
+    const c = controlsRef.current;
+    if (!c) return;
+    if (walk) eyePose.current = currentPose(c);
+    configure(c, false);
+    setLevel(LEVEL_FRONT);
+    setView("front");
+    const front = overviewPose("front", span);
+    void c.setLookAt(...front.pos, ...front.target, true);
+  }
+
+  function enterRoom(room: FloorPlanRoom) {
+    stopTour();
+    setWalkRoomId(room.id);
+    goToLevel(LEVEL_EYE, { room });
+  }
+
+  /** Double-click on a floor: stand at that spot, facing the way the camera already faces. */
+  const walkTo = useCallback(
+    (point: THREE.Vector3, roomId: string | null) => {
+      const c = controlsRef.current;
+      if (!c) return;
+      tourRef.current += tourRef.current % 2;
+      setTouring(false);
+      const p = c.getPosition(new THREE.Vector3(), true);
+      const t = c.getTarget(new THREE.Vector3(), true);
+      const dir = new THREE.Vector3(t.x - p.x, 0, t.z - p.z);
+      if (dir.lengthSq() < 1e-8) dir.set(0, 0, -1);
+      dir.normalize().multiplyScalar(LOOK_FT);
+      const pose: Pose = {
+        pos: [point.x, EYE_FT, point.z],
+        target: [point.x + dir.x, EYE_FT - 0.015, point.z + dir.z],
+      };
+      eyePose.current = pose;
+      if (roomId) setWalkRoomId(roomId);
+      configure(c, true);
+      setLevel(LEVEL_EYE);
+      setView("walk");
+      void c.setLookAt(...pose.pos, ...pose.target, true);
+    },
+    [configure]
+  );
+
+  /** Fly-through: top view, swoop down to eye level, then visit and look around each room. */
+  async function playTour() {
+    const c = controlsRef.current;
+    if (!c) return;
+    stopTour();
+    const token = ++tourRef.current; // odd = a tour is running
+    const alive = () => tourRef.current === token;
+    setTouring(true);
+    const smooth = c.smoothTime;
+    try {
+      c.smoothTime = 0.9;
+      configure(c, false);
+      setLevel(100);
+      setView("top");
+      const top = overviewPose("top", span);
+      await c.setLookAt(...top.pos, ...top.target, true);
+      await pause(500);
+      if (!alive()) return;
+      setLevel(LEVEL_ISO);
+      setView("iso");
+      const iso = overviewPose("iso", span);
+      await c.setLookAt(...iso.pos, ...iso.target, true);
+      for (const room of indoorRooms) {
+        if (!alive()) return;
+        const eye = roomEyePose(room, center);
+        eyePose.current = eye;
+        setWalkRoomId(room.id);
+        configure(c, true);
+        setLevel(LEVEL_EYE);
+        setView("walk");
+        await c.setLookAt(...eye.pos, ...eye.target, true);
+        if (!alive()) return;
+        c.smoothTime = 1.6;
+        await c.rotate(-Math.PI * 0.55, 0, true);
+        c.smoothTime = 0.9;
+        await pause(250);
+      }
+      if (!alive()) return;
+      eyePose.current = currentPose(c);
+      configure(c, false);
+      setLevel(LEVEL_ISO);
+      setView("iso");
+      await c.setLookAt(...iso.pos, ...iso.target, true);
+    } finally {
+      c.smoothTime = smooth;
+      if (alive()) {
+        tourRef.current++;
+        setTouring(false);
+      }
+    }
+  }
+
+  // Stop a running tour when the page goes away.
+  useEffect(() => () => void (tourRef.current += tourRef.current % 2), []);
+
+  function onKey(e: React.KeyboardEvent, down: boolean) {
+    const key = KEY_MAP[e.code];
+    if (!key || !walk) return;
+    e.preventDefault();
+    if (down) {
+      stopTour();
+      keys.current.add(key);
+    } else keys.current.delete(key);
   }
 
   function downloadImage() {
@@ -133,6 +345,9 @@ export function FloorPlan3DView({
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex items-center rounded-md border">
+          <Button size="sm" variant={view === "walk" ? "secondary" : "ghost"} onClick={() => showView("walk")}>
+            <Footprints className="size-4" /> Walk-through
+          </Button>
           <Button size="sm" variant={view === "iso" ? "secondary" : "ghost"} onClick={() => showView("iso")}>
             <BoxIcon className="size-4" /> 3D view
           </Button>
@@ -143,7 +358,17 @@ export function FloorPlan3DView({
             <Eye className="size-4" /> Front
           </Button>
         </div>
-        <Button size="sm" variant={cutaway ? "secondary" : "outline"} aria-pressed={cutaway} onClick={() => setCutaway((v) => !v)}>
+        <Button size="sm" variant={touring ? "secondary" : "outline"} onClick={() => (touring ? stopTour() : void playTour())}>
+          {touring ? <Square className="size-4" /> : <Play className="size-4" />} {touring ? "Stop tour" : "Play tour"}
+        </Button>
+        <Button
+          size="sm"
+          variant={cutaway && !walk ? "secondary" : "outline"}
+          aria-pressed={cutaway}
+          disabled={walk}
+          title={walk ? "Walls are full height at eye level" : undefined}
+          onClick={() => setCutaway((v) => !v)}
+        >
           <SquareDashed className="size-4" /> Cut-away walls
         </Button>
         <Button size="sm" variant={labels ? "secondary" : "outline"} aria-pressed={labels} onClick={() => setLabels((v) => !v)}>
@@ -154,42 +379,173 @@ export function FloorPlan3DView({
         </Button>
       </div>
       <p className="text-xs text-muted-foreground">
-        Drag to orbit, scroll or pinch to zoom, right-drag (or two fingers) to pan. Built from the saved 2D plan and room heights.
+        {walk
+          ? "Eye level: drag to look around, W/A/S/D or the arrow keys (or the on-screen pad) to walk, scroll to step forward or back. Double-click any floor to stand there."
+          : "Use the height slider to go from eye level up to the top view. Drag to orbit, scroll or pinch to zoom, right-drag to pan. Double-click any floor to stand there at eye level."}
       </p>
       <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_300px]">
-      <div className="h-[70vh] min-h-[420px] overflow-hidden rounded-lg border bg-[#f3efe8]">
-        <Canvas
-          ref={canvasRef}
-          shadows
-          dpr={[1, 2]}
-          gl={{ preserveDrawingBuffer: true, antialias: true }}
-          camera={{ fov: 40, near: 0.5, far: 4000, position: [span * 0.75, span * 0.95, span] }}
+        <div
+          className="relative h-[70vh] min-h-[420px] overflow-hidden rounded-lg border bg-[#f3efe8] outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          tabIndex={0}
+          aria-label="3D model"
+          onKeyDown={(e) => onKey(e, true)}
+          onKeyUp={(e) => onKey(e, false)}
+          onBlur={() => keys.current.clear()}
+          onPointerDown={(e) => {
+            if (e.target instanceof HTMLCanvasElement) e.currentTarget.focus({ preventScroll: true });
+          }}
         >
-          <color attach="background" args={["#f3efe8"]} />
-          <group position={[-center.x, 0, -center.z]}>
-            <Scene
-              rooms={rooms}
-              passage={passage}
-              building={building}
-              cutaway={cutaway}
-              labels={labels}
-              selectedId={selectedId}
-              onSelect={setSelectedId}
-            />
-          </group>
-          <Lights span={span} />
-          <CameraRig view={view} version={viewVersion} span={span} />
-          <OrbitControls makeDefault enableDamping dampingFactor={0.12} maxPolarAngle={Math.PI / 2 - 0.04} minDistance={4} maxDistance={span * 4} />
-        </Canvas>
+          <Canvas
+            ref={canvasRef}
+            shadows
+            dpr={[1, 2]}
+            gl={{ preserveDrawingBuffer: true, antialias: true }}
+            camera={{ fov: ORBIT_FOV, near: 0.2, far: 4000, position: overviewPose("iso", span).pos }}
+          >
+            <color attach="background" args={["#f3efe8"]} />
+            <group position={[-center.x, 0, -center.z]}>
+              <Scene
+                rooms={rooms}
+                passage={passage}
+                building={building}
+                cutaway={cutaway && !walk}
+                eyeLevel={walk}
+                labels={labels && !walk}
+                selectedId={selectedId}
+                onSelect={setSelectedId}
+                onWalkTo={walkTo}
+              />
+            </group>
+            <Lights span={span} />
+            <CameraControls ref={controlsRef} makeDefault smoothTime={0.3} onControlStart={stopTour} />
+            <CameraRig controlsRef={controlsRef} configure={configure} walk={walk} keys={keys} />
+          </Canvas>
+
+          <HeightSlider
+            value={level}
+            onChange={(v) => {
+              stopTour();
+              goToLevel(v);
+            }}
+          />
+
+          {walk && (
+            <>
+              <div className="absolute top-3 left-3 z-30 flex items-center gap-2 rounded-md bg-white/90 px-2 py-1 text-xs shadow-sm ring-1 ring-black/5">
+                <Footprints className="size-3.5 text-muted-foreground" />
+                <label htmlFor="walk-room" className="text-muted-foreground">
+                  Go to
+                </label>
+                <select
+                  id="walk-room"
+                  className="bg-transparent font-medium outline-none"
+                  value={walkRoom?.id ?? ""}
+                  onChange={(e) => {
+                    const room = indoorRooms.find((r) => r.id === e.target.value);
+                    if (room) enterRoom(room);
+                  }}
+                >
+                  {indoorRooms.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="absolute bottom-3 left-3 z-30 grid grid-cols-3 gap-1 select-none" aria-label="Walk controls">
+                <span />
+                <PadButton label="Walk forward" walkKey="forward" keys={keys} onStart={stopTour}>
+                  <ArrowUp className="size-4" />
+                </PadButton>
+                <span />
+                <PadButton label="Turn left" walkKey="turnLeft" keys={keys} onStart={stopTour}>
+                  <RotateCcw className="size-4" />
+                </PadButton>
+                <PadButton label="Walk back" walkKey="back" keys={keys} onStart={stopTour}>
+                  <ArrowDown className="size-4" />
+                </PadButton>
+                <PadButton label="Turn right" walkKey="turnRight" keys={keys} onStart={stopTour}>
+                  <RotateCw className="size-4" />
+                </PadButton>
+              </div>
+            </>
+          )}
+        </div>
+        <FinishesPanel
+          rooms={rooms}
+          selected={selectedRoom}
+          onSelect={setSelectedId}
+          onChange={updateFinish}
+          saveState={saveState}
+        />
       </div>
-      <FinishesPanel
-        rooms={rooms}
-        selected={selectedRoom}
-        onSelect={setSelectedId}
-        onChange={updateFinish}
-        saveState={saveState}
+    </div>
+  );
+}
+
+/** Hold to keep walking or turning; works with mouse and touch. */
+function PadButton({
+  label,
+  walkKey,
+  keys,
+  onStart,
+  children,
+}: {
+  label: string;
+  walkKey: WalkKey;
+  keys: React.RefObject<Set<WalkKey>>;
+  onStart: () => void;
+  children: React.ReactNode;
+}) {
+  const release = () => keys.current.delete(walkKey);
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      className="flex size-9 touch-none items-center justify-center rounded-md bg-white/90 text-neutral-700 shadow-sm ring-1 ring-black/10 hover:bg-white active:bg-neutral-100"
+      onPointerDown={(e) => {
+        e.preventDefault();
+        onStart();
+        keys.current.add(walkKey);
+      }}
+      onPointerUp={release}
+      onPointerLeave={release}
+      onPointerCancel={release}
+    >
+      {children}
+    </button>
+  );
+}
+
+/** Vertical "elevator" from eye level (bottom) to the top view. */
+function HeightSlider({ value, onChange }: { value: number; onChange: (v: number) => void }) {
+  return (
+    <div className="absolute top-3 right-3 bottom-3 z-30 flex w-14 flex-col items-center gap-1 rounded-md bg-white/90 py-2 text-[10px] font-medium text-neutral-600 shadow-sm ring-1 ring-black/5">
+      <button type="button" aria-label="Jump to top view" className="hover:text-neutral-900" onClick={() => onChange(100)}>
+        Top
+      </button>
+      <input
+        type="range"
+        min={0}
+        max={100}
+        step={1}
+        value={value}
+        aria-label="Camera height, from eye level to top view"
+        aria-valuetext={value === LEVEL_EYE ? "Eye level" : value === 100 ? "Top view" : `${value}%`}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="min-h-0 flex-1 cursor-pointer accent-neutral-800 [direction:rtl] [writing-mode:vertical-lr]"
       />
-      </div>
+      <button
+        type="button"
+        aria-label="Jump to eye level"
+        className="text-center leading-tight hover:text-neutral-900"
+        onClick={() => onChange(LEVEL_EYE)}
+      >
+        Eye
+        <br />
+        level
+      </button>
     </div>
   );
 }
@@ -351,19 +707,124 @@ function Lights({ span }: { span: number }) {
   );
 }
 
-function CameraRig({ view, version, span }: { view: CameraView; version: number; span: number }) {
-  const camera = useThree((s) => s.camera);
-  const controls = useThree((s) => s.controls) as unknown as { target: THREE.Vector3; update: () => void } | null;
+type Pose = { pos: [number, number, number]; target: [number, number, number] };
+
+function overviewPose(view: "iso" | "top" | "front", span: number): Pose {
+  const pos: [number, number, number] =
+    view === "top" ? [0, span * 1.6, 0.01] : view === "front" ? [0, span * 0.45, span * 1.3] : [span * 0.75, span * 0.95, span];
+  return { pos, target: [0, 0, 0] };
+}
+
+/** Standing just inside one end of the room at eye height, looking down its length. */
+function roomEyePose(room: FloorPlanRoom, center: { x: number; z: number }): Pose {
+  const { w, h } = footprint(room);
+  const eye = Math.max(2, Math.min(EYE_FT, room.heightFt - 1));
+  const cx = room.x + w / 2 - center.x;
+  const cz = room.y + h / 2 - center.z;
+  if (w >= h) {
+    const x = cx - w / 2 + Math.min(1.5, w * 0.15);
+    return { pos: [x, eye, cz], target: [x + LOOK_FT, eye - 0.015, cz] };
+  }
+  const z = cz + h / 2 - Math.min(1.5, h * 0.15);
+  return { pos: [cx, eye, z], target: [cx, eye - 0.015, z - LOOK_FT] };
+}
+
+function largestRoom(rooms: FloorPlanRoom[]): FloorPlanRoom | undefined {
+  return rooms.reduce<FloorPlanRoom | undefined>((best, r) => (!best || r.lengthFt * r.widthFt > best.lengthFt * best.widthFt ? r : best), undefined);
+}
+
+const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Orbit mode circles the model; eye-level mode turns the camera into a person standing in
+ * the room: dragging looks around (the target sits a hand's width ahead), and the wheel and
+ * keys walk instead of zooming. Walking is kept inside the plot.
+ */
+function applyCameraMode(c: CameraControlsImpl, eye: boolean, area: THREE.Box3 | null, span: number) {
+  const A = CameraControlsImpl.ACTION;
+  c.minDistance = 0.01;
+  c.maxDistance = span * 4;
+  c.dollyToCursor = false;
+  if (eye) {
+    c.minPolarAngle = 0.35;
+    c.maxPolarAngle = Math.PI - 0.35;
+    c.azimuthRotateSpeed = -0.35;
+    c.polarRotateSpeed = -0.35;
+    c.mouseButtons.left = A.ROTATE;
+    c.mouseButtons.middle = A.NONE;
+    c.mouseButtons.right = A.NONE;
+    c.mouseButtons.wheel = A.NONE;
+    c.touches.one = A.TOUCH_ROTATE;
+    c.touches.two = A.NONE;
+    c.touches.three = A.NONE;
+    c.setBoundary(area ?? undefined);
+  } else {
+    c.minPolarAngle = 0;
+    c.maxPolarAngle = Math.PI / 2 - 0.04;
+    c.azimuthRotateSpeed = 1;
+    c.polarRotateSpeed = 1;
+    c.mouseButtons.left = A.ROTATE;
+    c.mouseButtons.middle = A.DOLLY;
+    c.mouseButtons.right = A.TRUCK;
+    c.mouseButtons.wheel = A.DOLLY;
+    c.touches.one = A.TOUCH_ROTATE;
+    c.touches.two = A.TOUCH_DOLLY_TRUCK;
+    c.touches.three = A.TOUCH_TRUCK;
+    c.setBoundary(undefined);
+  }
+}
+
+/** Applies the camera mode, eases the field of view, and moves the walker from held keys. */
+function CameraRig({
+  controlsRef,
+  configure,
+  walk,
+  keys,
+}: {
+  controlsRef: React.RefObject<CameraControlsImpl | null>;
+  configure: (c: CameraControlsImpl, eye: boolean) => void;
+  walk: boolean;
+  keys: React.RefObject<Set<WalkKey>>;
+}) {
+  const gl = useThree((s) => s.gl);
+
   useEffect(() => {
-    const position: [number, number, number] =
-      view === "top" ? [0, span * 1.6, 0.01] : view === "front" ? [0, span * 0.45, span * 1.3] : [span * 0.75, span * 0.95, span];
-    camera.position.set(...position);
-    camera.lookAt(0, 0, 0);
-    if (controls) {
-      controls.target.set(0, 0, 0);
-      controls.update();
+    const c = controlsRef.current;
+    if (c) configure(c, walk);
+  }, [controlsRef, configure, walk]);
+
+  // At eye level the wheel steps forward and back instead of zooming.
+  useEffect(() => {
+    if (!walk) return;
+    const el = gl.domElement;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      void controlsRef.current?.forward(-e.deltaY * 0.012, true);
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [walk, gl, controlsRef]);
+
+  useFrame((state, delta) => {
+    const camera = state.camera as THREE.PerspectiveCamera;
+    const dt = Math.min(delta, 0.1);
+    const fov = walk ? WALK_FOV : ORBIT_FOV;
+    if (Math.abs(camera.fov - fov) > 0.05) {
+      camera.fov += (fov - camera.fov) * Math.min(1, dt * 5);
+      camera.updateProjectionMatrix();
     }
-  }, [view, version, span, camera, controls]);
+    const c = controlsRef.current;
+    const held = keys.current;
+    if (!walk || !c || held.size === 0) return;
+    const step = WALK_SPEED * (held.has("fast") ? 2 : 1) * dt;
+    const ahead = Number(held.has("forward")) - Number(held.has("back"));
+    const side = Number(held.has("right")) - Number(held.has("left"));
+    const turn = Number(held.has("turnLeft")) - Number(held.has("turnRight"));
+    if (ahead) void c.forward(ahead * step, false);
+    if (side) void c.truck(side * step, 0, false);
+    if (turn) void c.rotate(turn * TURN_SPEED * dt, 0, false);
+  });
+
   return null;
 }
 
@@ -484,6 +945,7 @@ function FloorPlane({
   textures,
   selected = false,
   onClick,
+  onDoubleClick,
 }: {
   kind: FloorKind;
   x: number;
@@ -494,6 +956,7 @@ function FloorPlane({
   textures: Record<FloorKind, THREE.CanvasTexture>;
   selected?: boolean;
   onClick?: (e: ThreeEvent<MouseEvent>) => void;
+  onDoubleClick?: (e: ThreeEvent<MouseEvent>) => void;
 }) {
   const map = useMemo(() => {
     const t = textures[kind].clone();
@@ -502,7 +965,7 @@ function FloorPlane({
     return t;
   }, [textures, kind, w, d]);
   return (
-    <mesh position={[x + w / 2, y, z + d / 2]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow onClick={onClick}>
+    <mesh position={[x + w / 2, y, z + d / 2]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow onClick={onClick} onDoubleClick={onDoubleClick}>
       <planeGeometry args={[w, d]} />
       <meshStandardMaterial
         map={map}
@@ -617,27 +1080,35 @@ function buildWalls(rooms: FloorPlanRoom[], cutaway: boolean): { walls: WallBox[
   return { walls, glass };
 }
 
-function Scene({
+const Scene = memo(function Scene({
   rooms,
   passage,
   building,
   cutaway,
+  eyeLevel,
   labels,
   selectedId,
   onSelect,
+  onWalkTo,
 }: {
   rooms: FloorPlanRoom[];
   passage: PlanPassage;
   building: Bounds;
   cutaway: boolean;
+  eyeLevel: boolean;
   labels: boolean;
   selectedId: string | null;
   onSelect: (id: string) => void;
+  onWalkTo: (point: THREE.Vector3, roomId: string | null) => void;
 }) {
   // A click selects a room, but not the end of an orbit drag.
   const pick = (roomId: string) => (e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation();
     if (e.delta <= 4) onSelect(roomId);
+  };
+  const standAt = (roomId: string | null) => (e: ThreeEvent<MouseEvent>) => {
+    e.stopPropagation();
+    onWalkTo(e.point.clone(), roomId);
   };
   const textures = useMemo(
     () =>
@@ -665,7 +1136,16 @@ function Scene({
 
       {hasPassage && (
         <>
-          <FloorPlane kind="paver" x={plot.minX} z={plot.minY} w={plot.maxX - plot.minX} d={plot.maxY - plot.minY} y={0.004} textures={textures} />
+          <FloorPlane
+            kind="paver"
+            x={plot.minX}
+            z={plot.minY}
+            w={plot.maxX - plot.minX}
+            d={plot.maxY - plot.minY}
+            y={0.004}
+            textures={textures}
+            onDoubleClick={standAt(null)}
+          />
           <Hedges plot={plot} passage={passage} />
         </>
       )}
@@ -684,9 +1164,23 @@ function Scene({
             textures={textures}
             selected={room.id === selectedId}
             onClick={pick(room.id)}
+            onDoubleClick={standAt(room.id)}
           />
         );
       })}
+
+      {eyeLevel &&
+        rooms
+          .filter((room) => !isPassage(room))
+          .map((room) => {
+            const { w, h } = footprint(room);
+            return (
+              <mesh key={`ceiling-${room.id}`} position={[room.x + w / 2, room.heightFt, room.y + h / 2]} rotation={[Math.PI / 2, 0, 0]}>
+                <planeGeometry args={[w, h]} />
+                <meshStandardMaterial color="#fbfaf7" roughness={1} />
+              </mesh>
+            );
+          })}
 
       {walls.map((b, i) => (
         <mesh key={`w${i}`} position={[b.x + b.w / 2, (b.y0 + b.y1) / 2, b.z + b.d / 2]} castShadow receiveShadow>
@@ -718,13 +1212,16 @@ function Scene({
         })
       )}
 
-      {labels &&
-        rooms.map((room) => {
+      {/* Labels stay mounted and are hidden instead: unmounting drei's Html throws a removeChild error. */}
+      {rooms.map((room) => {
           const { w, h } = footprint(room);
           const y = (cutaway ? Math.min(room.heightFt, CUTAWAY_FT) : room.heightFt) + 0.8;
           return (
             <Html key={`label-${room.id}`} position={[room.x + w / 2, y, room.y + h / 2]} center zIndexRange={[20, 0]}>
-              <div className="pointer-events-none rounded-md bg-white/85 px-2 py-0.5 text-center whitespace-nowrap shadow-sm ring-1 ring-black/5">
+              <div
+                hidden={!labels}
+                className="pointer-events-none rounded-md bg-white/85 px-2 py-0.5 text-center whitespace-nowrap shadow-sm ring-1 ring-black/5"
+              >
                 <div className="text-[11px] font-bold tracking-wide text-neutral-800 uppercase">{room.name}</div>
                 <div className="text-[10px] text-neutral-500">
                   {room.lengthFt.toFixed(1)} × {room.widthFt.toFixed(1)} × {room.heightFt.toFixed(1)} ft
@@ -735,7 +1232,7 @@ function Scene({
         })}
     </>
   );
-}
+});
 
 function Hedges({ plot, passage }: { plot: Bounds; passage: PlanPassage }) {
   const strips: { x: number; z: number; w: number; d: number }[] = [];
