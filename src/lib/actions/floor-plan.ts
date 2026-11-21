@@ -179,7 +179,13 @@ async function saveOpeningPlacements(
     if (!projectRoomIds.has(o.roomId)) return "Opening does not belong to this project";
     const { data: row, error } = await supabase
       .from("room_openings")
-      .update({ plan_wall: o.wall, plan_offset: round2(o.offset), plan_swing: o.swing, plan_full_height: o.fullHeight })
+      .update({
+        plan_wall: o.wall,
+        plan_offset: round2(o.offset),
+        plan_swing: o.swing,
+        plan_full_height: o.fullHeight,
+        plan_main_door: o.mainDoor,
+      })
       .eq("id", o.id)
       .eq("room_id", o.roomId)
       .eq("organization_id", organizationId)

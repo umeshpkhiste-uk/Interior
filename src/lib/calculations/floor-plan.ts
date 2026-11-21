@@ -59,6 +59,8 @@ export type PlanOpening = {
   swing: DoorSwing;
   /** Windows only: runs from the floor to the ceiling. */
   fullHeight: boolean;
+  /** Doors only: the main door / entrance of the house. */
+  mainDoor?: boolean;
   /** Rows with quantity > 1 are drawn but can only be edited on Room Measurements. */
   movable: boolean;
 };
@@ -124,6 +126,7 @@ export function resolveOpenings(room: FloorPlanRoom, shared: Set<Wall>): Resolve
 export type OpeningSpan = {
   id: string;
   type: "door" | "window";
+  mainDoor: boolean;
   horizontal: boolean;
   /** y of a horizontal wall, x of a vertical one. */
   at: number;
@@ -163,6 +166,7 @@ export function openingSpans(rooms: FloorPlanRoom[]): OpeningSpan[] {
       return {
         id: opening.id,
         type: opening.type,
+        mainDoor: opening.type === "door" && Boolean(opening.mainDoor),
         horizontal,
         at: horizontal ? a.y : a.x,
         from: horizontal ? Math.min(a.x, b.x) : Math.min(a.y, b.y),
@@ -663,4 +667,111 @@ export function autoArrange(rooms: FloorPlanRoom[], startY = 0): FloorPlanRoom[]
     rowHeight = Math.max(rowHeight, room.widthFt);
     return positioned;
   });
+}
+
+/** Height of the flat's outer wall, whatever the rooms' own heights are. */
+export const OUTER_WALL_HEIGHT_FT = 12;
+
+/** A stretch of the flat's outer wall; `outside` is the direction (+1 / -1 across the line) that faces out. */
+export type OuterWall = { horizontal: boolean; at: number; from: number; to: number; outside: 1 | -1 };
+
+/** Gaps narrower than this between rooms count as wall, not outside. */
+const OUTLINE_TOLERANCE_FT = 0.3;
+
+/**
+ * The outer wall around the whole flat: the outline of all rooms put together. Built from a grid
+ * over every room edge; a grid edge with a room on one side and nothing on the other is outer
+ * wall. Thin slivers between neighbouring rooms count as inside, so they don't get walls.
+ */
+export function outerWalls(rooms: FloorPlanRoom[]): OuterWall[] {
+  const rects = rooms.map((r) => ({ x: r.x, y: r.y, ...footprint(r) }));
+  if (rects.length === 0) return [];
+  const uniq = (vs: number[]) => [...new Set(vs.map((v) => Math.round(v * 100) / 100))].sort((a, b) => a - b);
+  const xs = uniq(rects.flatMap((r) => [r.x, r.x + r.w]));
+  const ys = uniq(rects.flatMap((r) => [r.y, r.y + r.h]));
+  const t = OUTLINE_TOLERANCE_FT;
+  const filled = (i: number, j: number) => {
+    if (i < 0 || j < 0 || i >= xs.length - 1 || j >= ys.length - 1) return false;
+    const cx = (xs[i] + xs[i + 1]) / 2;
+    const cy = (ys[j] + ys[j + 1]) / 2;
+    return rects.some((r) => cx >= r.x - t && cx <= r.x + r.w + t && cy >= r.y - t && cy <= r.y + r.h + t);
+  };
+  const edges: OuterWall[] = [];
+  // Horizontal edges: between the cell above (j - 1) and below (j) at y = ys[j].
+  for (let j = 0; j < ys.length; j++) {
+    for (let i = 0; i < xs.length - 1; i++) {
+      const above = filled(i, j - 1);
+      const below = filled(i, j);
+      if (above !== below) edges.push({ horizontal: true, at: ys[j], from: xs[i], to: xs[i + 1], outside: above ? 1 : -1 });
+    }
+  }
+  // Vertical edges: between the cell left (i - 1) and right (i) at x = xs[i].
+  for (let i = 0; i < xs.length; i++) {
+    for (let j = 0; j < ys.length - 1; j++) {
+      const left = filled(i - 1, j);
+      const right = filled(i, j);
+      if (left !== right) edges.push({ horizontal: false, at: xs[i], from: ys[j], to: ys[j + 1], outside: left ? 1 : -1 });
+    }
+  }
+  // Join neighbouring pieces on the same line facing the same way.
+  edges.sort((a, b) => Number(a.horizontal) - Number(b.horizontal) || a.at - b.at || a.outside - b.outside || a.from - b.from);
+  const merged: OuterWall[] = [];
+  for (const e of edges) {
+    const last = merged.at(-1);
+    if (last && last.horizontal === e.horizontal && last.at === e.at && last.outside === e.outside && Math.abs(last.to - e.from) < 0.01)
+      last.to = e.to;
+    else merged.push({ ...e });
+  }
+  return merged.filter((e) => e.to - e.from > 0.05);
+}
+
+/** The outer wall drawn as plan wall segments (for the 2D plan). */
+export function outerWallSegments(rooms: FloorPlanRoom[]): WallSegment[] {
+  return outerWalls(rooms).map((w) =>
+    w.horizontal
+      ? { x1: w.from, y1: w.at, x2: w.to, y2: w.at, roomId: "" }
+      : { x1: w.at, y1: w.from, x2: w.at, y2: w.to, roomId: "" }
+  );
+}
+
+/** Total length of the flat's outer wall, in feet. */
+export function outerWallLength(rooms: FloorPlanRoom[]): number {
+  return outerWalls(rooms).reduce((sum, w) => sum + (w.to - w.from), 0);
+}
+
+/** A room's own walls that lie on the flat's outer wall (they always have a wall, even if marked open). */
+export function wallsOnOuterWall(room: FloorPlanRoom, rooms: FloorPlanRoom[]): Set<Wall> {
+  const { w, h } = footprint(room);
+  const outer = outerWalls(rooms);
+  const result = new Set<Wall>();
+  for (const wall of WALLS) {
+    const side = toPlanSide(wall, room.rotation);
+    const horizontal = side === "top" || side === "bottom";
+    const at = side === "top" ? room.y : side === "bottom" ? room.y + h : side === "left" ? room.x : room.x + w;
+    const [from, to] = horizontal ? [room.x, room.x + w] : [room.y, room.y + h];
+    const overlap = outer
+      .filter((o) => o.horizontal === horizontal && Math.abs(o.at - at) < 0.2)
+      .reduce((sum, o) => sum + Math.max(0, Math.min(o.to, to) - Math.max(o.from, from)), 0);
+    if (overlap >= (to - from) / 2) result.add(wall);
+  }
+  return result;
+}
+
+/**
+ * Where the house is entered: the middle of the door marked as main door, its width, and the
+ * direction (on the plan) pointing out of the house through it. Null when no main door is marked.
+ */
+export function entranceOf(rooms: FloorPlanRoom[]): { x: number; y: number; width: number; out: [number, number] } | null {
+  const door = openingSpans(rooms).find((o) => o.mainDoor);
+  if (!door) return null;
+  const mid = (door.from + door.to) / 2;
+  const [x, y] = door.horizontal ? [mid, door.at] : [door.at, mid];
+  const inside = (px: number, py: number) => rooms.some((r) => !isPassage(r) && containsPoint(r, px, py));
+  const plus: [number, number] = door.horizontal ? [0, 1] : [1, 0];
+  const probe = 0.8;
+  // Out is the side without a room; if both sides have one, the side outside the outer wall wins.
+  const plusInside = inside(x + plus[0] * probe, y + plus[1] * probe);
+  const minusInside = inside(x - plus[0] * probe, y - plus[1] * probe);
+  const out: [number, number] = plusInside && !minusInside ? [-plus[0], -plus[1]] : plus;
+  return { x, y, width: door.to - door.from, out };
 }

@@ -89,6 +89,7 @@ export async function getFloorPlan(organizationId: string, projectId: string): P
         heightFt: Number(o.height ?? 0),
         swing: (o.plan_swing ?? 0) as PlanOpening["swing"],
         fullHeight: o.opening_type === "window" && Boolean(o.plan_full_height),
+        mainDoor: o.opening_type === "door" && Boolean(o.plan_main_door),
       };
       if (o.quantity === 1) {
         const wall = (PLAN_WALLS as readonly string[]).includes(o.plan_wall ?? "") ? (o.plan_wall as PlanOpening["wall"]) : null;

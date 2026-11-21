@@ -3258,6 +3258,7 @@ export type Database = {
           opening_type: Database["public"]["Enums"]["opening_type"]
           organization_id: string
           plan_full_height: boolean
+          plan_main_door: boolean
           plan_offset: number | null
           plan_swing: number
           plan_wall: string | null
@@ -3274,6 +3275,7 @@ export type Database = {
           opening_type?: Database["public"]["Enums"]["opening_type"]
           organization_id: string
           plan_full_height?: boolean
+          plan_main_door?: boolean
           plan_offset?: number | null
           plan_swing?: number
           plan_wall?: string | null
@@ -3290,6 +3292,7 @@ export type Database = {
           opening_type?: Database["public"]["Enums"]["opening_type"]
           organization_id?: string
           plan_full_height?: boolean
+          plan_main_door?: boolean
           plan_offset?: number | null
           plan_swing?: number
           plan_wall?: string | null

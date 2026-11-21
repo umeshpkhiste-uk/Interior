@@ -51,6 +51,9 @@ import {
   wallGapLine,
   wallPieceAt,
   wallSegments,
+  outerWallSegments,
+  wallsOnOuterWall,
+  entranceOf,
   WALLS,
   type FloorPlanRoom,
   type WallSegment,
@@ -149,6 +152,17 @@ const drawOrder = (items: FurnitureItem[]) => [...items].sort((a, b) => Number(b
 const snapToGrid = (v: number) => Math.round(v / GRID_FT) * GRID_FT;
 const nextRotation = (r: PlanRotation) => ((r + 90) % 360) as PlanRotation;
 
+/** Items that are part of the build (partitions, counters, platforms, stairs) rather than loose furniture. */
+const BUILT_IN_ITEMS = new Set<FurnitureType>([
+  "partition",
+  "breakfast_counter",
+  "mandir",
+  "counter_straight",
+  "counter_l",
+  "stairs",
+  "shower",
+]);
+
 /** Pulls an edge onto a nearby wall of another room so neighbouring rooms share walls. */
 function snapToEdges(pos: number, size: number, edges: number[]): number {
   let best = pos;
@@ -205,6 +219,9 @@ export function FloorPlanEditor({
   });
 
   const walls = useMemo(() => wallSegments(rooms), [rooms]);
+  /** The flat's outer wall, drawn all the way round (it closes open sides on the outside). */
+  const outerSegments = useMemo(() => outerWallSegments(rooms), [rooms]);
+  const entrance = useMemo(() => entranceOf(rooms), [rooms]);
   const sharedWallsByRoom = useMemo(() => new Map(rooms.map((r) => [r.id, sharedWalls(r, rooms)])), [rooms]);
   /** Doors/windows on removed wall pieces: hidden now, deleted on save (putting the wall back restores them). */
   const removedOpeningIds = useMemo(() => openingsOnRemovedWalls(rooms), [rooms]);
@@ -483,6 +500,26 @@ export function FloorPlanEditor({
     patchRoom(roomId, (r) => ({ wallGaps: r.wallGaps.filter((_, k) => k !== index) }));
   }
 
+  /** Marks the selected door as the house's main door (only one door can be). */
+  function setMainDoor(mainDoor: boolean) {
+    if (!selectedRoom || !selectedOpening || selectedOpening.type !== "door") return;
+    const id = selectedOpening.id;
+    // Pin an automatically placed door where it is drawn, so its placement is saved with it.
+    const placed = resolveOpenings(selectedRoom, sharedWallsByRoom.get(selectedRoom.id) ?? new Set()).find((p) => p.opening.id === id);
+    commit(
+      rooms.map((r) => ({
+        ...r,
+        openings: r.openings.map((o) =>
+          o.id === id
+            ? { ...o, mainDoor, wall: o.wall ?? placed?.wall ?? null, offset: o.offset ?? placed?.offset ?? null }
+            : mainDoor && o.mainDoor
+              ? { ...o, mainDoor: false }
+              : o
+        ),
+      }))
+    );
+  }
+
   function setWindowFullHeight(fullHeight: boolean) {
     if (!selectedRoom || !selectedOpening) return;
     patchOpening(selectedRoom.id, selectedOpening.id, { fullHeight });
@@ -553,7 +590,8 @@ export function FloorPlanEditor({
       return;
     }
     const start = WALLS.indexOf(wall);
-    const next = [1, 2, 3].map((k) => WALLS[(start + k) % 4]).find((w) => !room.openWalls.includes(w));
+    const outside = wallsOnOuterWall(room, rooms);
+    const next = [1, 2, 3].map((k) => WALLS[(start + k) % 4]).find((w) => !room.openWalls.includes(w) || outside.has(w));
     if (!next) return;
     const len = wallLength(room, next);
     const width = Math.min(opening.widthFt || 4, len - 0.2);
@@ -564,7 +602,9 @@ export function FloorPlanEditor({
     if (!selectedRoom) return;
     const room = selectedRoom;
     const shared = sharedWallsByRoom.get(room.id) ?? new Set<Wall>();
-    const walled = WALLS.filter((w) => !room.openWalls.includes(w));
+    // Sides on the flat's outer wall always have a wall, even if marked open.
+    const outside = wallsOnOuterWall(room, rooms);
+    const walled = WALLS.filter((w) => !room.openWalls.includes(w) || outside.has(w));
     if (walled.length === 0) {
       toast.error("This room has no walls — close a side first");
       return;
@@ -751,7 +791,12 @@ export function FloorPlanEditor({
         const was = before.get(o.id);
         if (!o.movable || !o.wall || o.offset == null || !was) return [];
         const widthChanged = was.widthFt !== o.widthFt;
-        const unchanged = was.wall === o.wall && was.offset === o.offset && was.swing === o.swing && was.fullHeight === o.fullHeight;
+        const unchanged =
+          was.wall === o.wall &&
+          was.offset === o.offset &&
+          was.swing === o.swing &&
+          was.fullHeight === o.fullHeight &&
+          Boolean(was.mainDoor) === Boolean(o.mainDoor);
         if (unchanged && !widthChanged) return [];
         return [
           {
@@ -761,6 +806,7 @@ export function FloorPlanEditor({
             offset: o.offset,
             swing: o.swing,
             fullHeight: o.fullHeight,
+            mainDoor: Boolean(o.mainDoor),
             ...(widthChanged ? { widthFt: o.widthFt } : {}),
           },
         ];
@@ -984,7 +1030,7 @@ export function FloorPlanEditor({
           <Scissors className="size-4" /> {wallTool ? "Done removing walls" : "Remove wall"}
         </Button>
         <select
-          aria-label="Add area or furniture"
+          aria-label="Add area"
           className="h-7 rounded-md border bg-background px-2 text-[0.8rem]"
           value=""
           disabled={pending}
@@ -992,17 +1038,34 @@ export function FloorPlanEditor({
             if (e.target.value) handleAddChoice(e.target.value);
           }}
         >
-          <option value="">+ Add area or furniture…</option>
-          <optgroup label="Areas (passage, WC…)">
-            {PLAN_AREA_PRESETS.map((p) => (
-              <option key={p.key} value={`area:${p.key}`}>
-                {p.label}
+          <option value="">+ Add area…</option>
+          {PLAN_AREA_PRESETS.map((p) => (
+            <option key={p.key} value={`area:${p.key}`}>
+              {p.label}
+            </option>
+          ))}
+        </select>
+        <select
+          aria-label="Add furniture"
+          className="h-7 rounded-md border bg-background px-2 text-[0.8rem]"
+          value=""
+          disabled={pending || !selectedRoom}
+          title={selectedRoom ? undefined : "Select a room first"}
+          onChange={(e) => {
+            if (e.target.value) handleAddChoice(e.target.value);
+          }}
+        >
+          <option value="">{selectedRoom ? `+ Add furniture to ${selectedRoom.name}…` : "+ Add furniture (select a room)"}</option>
+          <optgroup label="Built-in / architectural">
+            {FURNITURE_TYPES.filter((t) => BUILT_IN_ITEMS.has(t)).map((t) => (
+              <option key={t} value={`item:${t}`}>
+                {FURNITURE_LABELS[t]}
               </option>
             ))}
           </optgroup>
-          <optgroup label={selectedRoom ? `Furniture → ${selectedRoom.name}` : "Furniture (select a room first)"}>
-            {FURNITURE_TYPES.map((t) => (
-              <option key={t} value={`item:${t}`} disabled={!selectedRoom}>
+          <optgroup label="Furniture & fittings">
+            {FURNITURE_TYPES.filter((t) => !BUILT_IN_ITEMS.has(t)).map((t) => (
+              <option key={t} value={`item:${t}`}>
                 {FURNITURE_LABELS[t]}
               </option>
             ))}
@@ -1036,6 +1099,7 @@ export function FloorPlanEditor({
         onOpeningWidth={setOpeningWidth}
         onRemoveOpening={removeSelectedOpening}
         onWindowFullHeight={setWindowFullHeight}
+        onMainDoor={setMainDoor}
         passage={passage}
         onPassageChange={changePassage}
       />
@@ -1112,6 +1176,9 @@ export function FloorPlanEditor({
             {walls.map((seg, i) => (
               <line key={i} x1={seg.x1} y1={seg.y1} x2={seg.x2} y2={seg.y2} />
             ))}
+            {outerSegments.map((seg, i) => (
+              <line key={`outer-${i}`} x1={seg.x1} y1={seg.y1} x2={seg.x2} y2={seg.y2} />
+            ))}
           </g>
 
           {rooms.map((room) => {
@@ -1153,6 +1220,38 @@ export function FloorPlanEditor({
               </g>
             );
           })}
+
+          {entrance && (
+            <g pointerEvents="none" fill="#b45309" stroke="#b45309">
+              {/* Arrow from outside pointing in through the main door, with a label. */}
+              <line
+                x1={entrance.x + entrance.out[0] * 2.4}
+                y1={entrance.y + entrance.out[1] * 2.4}
+                x2={entrance.x + entrance.out[0] * 0.75}
+                y2={entrance.y + entrance.out[1] * 0.75}
+                strokeWidth={0.12}
+              />
+              <path
+                d={`M ${entrance.x + entrance.out[0] * 0.45} ${entrance.y + entrance.out[1] * 0.45} l ${
+                  entrance.out[0] * 0.5 + entrance.out[1] * 0.35
+                } ${entrance.out[1] * 0.5 + entrance.out[0] * 0.35} l ${-entrance.out[1] * 0.7} ${-entrance.out[0] * 0.7} Z`}
+                stroke="none"
+              />
+              <text
+                // Beside the arrow's tail: above it for a sideways arrow, past its end for an up/down one.
+                x={entrance.x + entrance.out[0] * 1.6}
+                y={entrance.out[1] === 0 ? entrance.y - 0.45 : entrance.y + entrance.out[1] * 3 + 0.18}
+                fontSize={0.5}
+                fontWeight={700}
+                textAnchor="middle"
+                stroke="none"
+                fontFamily="Arial, Helvetica, sans-serif"
+                letterSpacing={0.05}
+              >
+                ENTRANCE
+              </text>
+            </g>
+          )}
 
           {wallTool && (
             <g>
@@ -1373,6 +1472,7 @@ function SelectionPanel({
   onOpeningWidth,
   onRemoveOpening,
   onWindowFullHeight,
+  onMainDoor,
   passage,
   onPassageChange,
 }: {
@@ -1392,6 +1492,7 @@ function SelectionPanel({
   onOpeningWidth: (widthFt: number) => void;
   onRemoveOpening: () => void;
   onWindowFullHeight: (fullHeight: boolean) => void;
+  onMainDoor: (mainDoor: boolean) => void;
   passage: PlanPassage;
   onPassageChange: (side: keyof PlanPassage, feet: number) => void;
 }) {
@@ -1401,8 +1502,8 @@ function SelectionPanel({
         <p>
           Click a room to move or resize it, or to open its walls. Drag rooms onto each other to join them — the wall between
           them disappears. Click furniture to move, rotate or remove it. Keys: arrows nudge (Shift = 1 ft), R rotates, Delete
-          removes furniture. Drag furniture into another room or a passage to move it there. Use “+ Add area or
-          furniture” for passages, extra WCs, balconies and furniture.
+          removes furniture. Drag furniture into another room or a passage to move it there. Use “+ Add area” for
+          passages, extra WCs and balconies, and “+ Add furniture” for furniture and built-ins.
         </p>
         <div className="flex flex-wrap items-end gap-3">
           <span className="pb-2 text-sm font-medium text-foreground">Outside passage (ft)</span>
@@ -1422,7 +1523,14 @@ function SelectionPanel({
   }
 
   if (opening) {
-    const label = opening.type === "door" ? "Door" : opening.fullHeight ? "Full-height window" : "Window";
+    const label =
+      opening.type === "door"
+        ? opening.mainDoor
+          ? "Main door"
+          : "Door"
+        : opening.fullHeight
+          ? "Full-height window"
+          : "Window";
     return (
       <div className={`${PANEL} bg-muted/30`}>
         <div className="flex flex-wrap items-end gap-3">
@@ -1474,6 +1582,29 @@ function SelectionPanel({
                 </Button>
               );
             })}
+          </div>
+        )}
+        {opening.movable && opening.type === "door" && (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs text-muted-foreground">Door type:</span>
+            <Button
+              size="xs"
+              variant={opening.mainDoor ? "outline" : "secondary"}
+              aria-pressed={!opening.mainDoor}
+              onClick={() => onMainDoor(false)}
+              disabled={disabled}
+            >
+              Room door
+            </Button>
+            <Button
+              size="xs"
+              variant={opening.mainDoor ? "secondary" : "outline"}
+              aria-pressed={Boolean(opening.mainDoor)}
+              onClick={() => onMainDoor(true)}
+              disabled={disabled}
+            >
+              Main door (entrance)
+            </Button>
           </div>
         )}
         {opening.movable && opening.type === "window" && (

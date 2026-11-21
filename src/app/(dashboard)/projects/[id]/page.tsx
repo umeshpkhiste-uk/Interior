@@ -4,6 +4,8 @@ import { ArrowLeft } from "lucide-react";
 import { requireCurrentUserContext } from "@/lib/data/organization";
 import { getProjectById, listClientOptions, listDesignerOptions } from "@/lib/data/projects";
 import { listRoomsForProject } from "@/lib/data/rooms";
+import { getFloorPlan } from "@/lib/data/floor-plan";
+import { outerWallLength } from "@/lib/calculations/floor-plan";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ProjectFormDialog } from "@/components/projects/project-form-dialog";
@@ -43,7 +45,7 @@ export default async function ProjectDetailPage({
   const project = await getProjectById(ctx.organizationId, id);
   if (!project) notFound();
 
-  const [clients, designers, rooms, roomOptions, boqItems, boqSettings, quotations, designFee, expenses, payments] =
+  const [clients, designers, rooms, roomOptions, boqItems, boqSettings, quotations, designFee, expenses, payments, plan] =
     await Promise.all([
       listClientOptions(ctx.organizationId),
       listDesignerOptions(ctx.organizationId),
@@ -55,7 +57,9 @@ export default async function ProjectDetailPage({
       getDesignFee(ctx.organizationId, id),
       listExpenses(ctx.organizationId, id),
       listPayments(ctx.organizationId, id),
+      getFloorPlan(ctx.organizationId, id),
     ]);
+  const outerWallFt = outerWallLength(plan.rooms);
 
   return (
     <div className="flex flex-col gap-6">
@@ -139,7 +143,7 @@ export default async function ProjectDetailPage({
         </TabsContent>
 
         <TabsContent value="rooms">
-          <RoomsPanel projectId={id} rooms={rooms} focusRoomId={focusRoom ?? null} />
+          <RoomsPanel projectId={id} rooms={rooms} focusRoomId={focusRoom ?? null} outerWallFt={outerWallFt} />
         </TabsContent>
         <TabsContent value="estimators">
           <EstimatorsPanel projectId={id} />

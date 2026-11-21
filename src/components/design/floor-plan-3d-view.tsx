@@ -16,11 +16,13 @@ import {
   Layers,
   Paintbrush,
   Play,
+  Redo2,
   RotateCcw,
   RotateCw,
   Scan,
   Square,
   SquareDashed,
+  Undo2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -30,6 +32,9 @@ import {
   isPassage,
   itemPlanRect,
   openingSpans,
+  entranceOf,
+  outerWalls,
+  OUTER_WALL_HEIGHT_FT,
   toPlanSide,
   wallGapLine,
   wallSegments,
@@ -163,9 +168,30 @@ export function FloorPlan3DView({
     [flush]
   );
 
+  // Undo / redo for finishes (wall paint, design walls, house floor). Quick repeats of the same
+  // change (dragging the colour picker) count as one step.
+  type Snapshot = { finishes: Record<string, Finish>; houseFloor: FloorMaterial | null };
+  const [past, setPast] = useState<Snapshot[]>([]);
+  const [future, setFuture] = useState<Snapshot[]>([]);
+  const lastEdit = useRef<{ key: string; at: number } | null>(null);
+
+  function remember(key: string) {
+    const now = Date.now();
+    const repeat = lastEdit.current?.key === key && now - lastEdit.current.at < 1500;
+    lastEdit.current = { key, at: now };
+    if (repeat) return;
+    setPast((p) => [...p.slice(-49), { finishes, houseFloor }]);
+    setFuture([]);
+  }
+
   function updateFinish(roomId: string, patch: Partial<Finish>) {
+    remember(`${roomId}:${Object.keys(patch).join(",")}`);
     const next = { ...finishes[roomId], ...patch };
     setFinishes((f) => ({ ...f, [roomId]: next }));
+    queueFinishSave(roomId, next);
+  }
+
+  function queueFinishSave(roomId: string, next: Finish) {
     pending.current.set(roomId, {
       roomId,
       wallColor: next.wallColor,
@@ -185,6 +211,11 @@ export function FloorPlan3DView({
   }
 
   function updateHouseFloor(floor: FloorMaterial | null) {
+    remember("floor");
+    saveFloor(floor);
+  }
+
+  function saveFloor(floor: FloorMaterial | null) {
     setHouseFloor(floor);
     setSaveState("saving");
     void saveHouseFloor(projectId, floor).then((result) => {
@@ -194,6 +225,50 @@ export function FloorPlan3DView({
       } else setSaveState("saved");
     });
   }
+
+  function restore(snap: Snapshot) {
+    for (const [roomId, finish] of Object.entries(snap.finishes)) {
+      if (finish !== finishes[roomId]) queueFinishSave(roomId, finish);
+    }
+    setFinishes(snap.finishes);
+    if (snap.houseFloor !== houseFloor) saveFloor(snap.houseFloor);
+    lastEdit.current = null;
+  }
+
+  function undo() {
+    const prev = past.at(-1);
+    if (!prev) return;
+    setPast(past.slice(0, -1));
+    setFuture((f) => [...f, { finishes, houseFloor }]);
+    restore(prev);
+  }
+
+  function redo() {
+    const next = future.at(-1);
+    if (!next) return;
+    setFuture(future.slice(0, -1));
+    setPast((p) => [...p, { finishes, houseFloor }]);
+    restore(next);
+  }
+
+  // Ctrl/Cmd+Z undo, Ctrl/Cmd+Shift+Z or Ctrl+Y redo, except while typing in a field.
+  useEffect(() => {
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      const target = e.target as HTMLElement | null;
+      if (target?.closest("input, textarea, select, [contenteditable=true]")) return;
+      const key = e.key.toLowerCase();
+      if (key === "z" && !e.shiftKey) {
+        e.preventDefault();
+        undo();
+      } else if ((key === "z" && e.shiftKey) || key === "y") {
+        e.preventDefault();
+        redo();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
 
   const selectedRoom = rooms.find((r) => r.id === selectedId) ?? null;
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -469,7 +544,15 @@ export function FloorPlan3DView({
         >
           <Layers className="size-4" /> Room labels
         </Button>
-        <Button size="sm" variant="outline" onClick={downloadImage} className="ml-auto">
+        <div className="ml-auto flex items-center gap-1">
+          <Button size="sm" variant="outline" onClick={undo} disabled={past.length === 0} aria-label="Undo" title="Undo (Ctrl+Z)">
+            <Undo2 className="size-4" />
+          </Button>
+          <Button size="sm" variant="outline" onClick={redo} disabled={future.length === 0} aria-label="Redo" title="Redo (Ctrl+Shift+Z)">
+            <Redo2 className="size-4" />
+          </Button>
+        </div>
+        <Button size="sm" variant="outline" onClick={downloadImage}>
           <Download className="size-4" /> Download image
         </Button>
       </div>
@@ -1116,6 +1199,24 @@ function CameraRig({
   return null;
 }
 
+/** An amber sign board with white lettering, as a texture. */
+function makeSignTexture(text: string): THREE.CanvasTexture {
+  const canvas = document.createElement("canvas");
+  canvas.width = 512;
+  canvas.height = 148;
+  const ctx = canvas.getContext("2d")!;
+  ctx.fillStyle = "#b45309";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "bold 84px Arial, Helvetica, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, canvas.width / 2, canvas.height / 2 + 4);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
 /** Feet of floor covered by one copy of each generated texture. */
 const TEXTURE_FEET: Record<FloorKind, number> = {
   wood: 4,
@@ -1348,19 +1449,32 @@ function buildWalls(rooms: FloorPlanRoom[], cutaway: boolean): { walls: WallBox[
   const fullAt = (horizontal: boolean, at: number, along: number) =>
     designLines.some((l) => l.horizontal === horizontal && Math.abs(l.at - at) < 0.2 && along > l.from - 0.01 && along < l.to + 0.01);
   const heightOf = new Map(rooms.map((r) => [r.id, r.heightFt]));
-  const lines = new Map<string, { horizontal: boolean; at: number; spans: { from: number; to: number; height: number }[] }>();
+  type Span = { from: number; to: number; height: number; outer: boolean };
+  const lines = new Map<string, { horizontal: boolean; at: number; spans: Span[] }>();
+  const addSpan = (horizontal: boolean, at: number, span: Span) => {
+    const key = lineKeyOf(horizontal, at);
+    const line = lines.get(key) ?? { horizontal, at, spans: [] };
+    line.spans.push(span);
+    lines.set(key, line);
+  };
+  // The flat's outer wall goes all the way round (closing open sides) at its own fixed height;
+  // room walls lying on it are replaced by it.
+  const outer = outerWalls(rooms);
   for (const seg of wallSegments(rooms)) {
     const horizontal = seg.y1 === seg.y2;
     const at = horizontal ? seg.y1 : seg.x1;
-    const key = lineKeyOf(horizontal, at);
-    const line = lines.get(key) ?? { horizontal, at, spans: [] };
-    line.spans.push({
-      from: horizontal ? Math.min(seg.x1, seg.x2) : Math.min(seg.y1, seg.y2),
-      to: horizontal ? Math.max(seg.x1, seg.x2) : Math.max(seg.y1, seg.y2),
-      height: heightOf.get(seg.roomId) ?? 10,
-    });
-    lines.set(key, line);
+    let pieces: [number, number][] = [
+      horizontal ? [Math.min(seg.x1, seg.x2), Math.max(seg.x1, seg.x2)] : [Math.min(seg.y1, seg.y2), Math.max(seg.y1, seg.y2)],
+    ];
+    for (const o of outer) {
+      if (o.horizontal !== horizontal || Math.abs(o.at - at) > 0.2) continue;
+      pieces = pieces.flatMap(([a, b]): [number, number][] =>
+        o.to <= a || o.from >= b ? [[a, b]] : ([[a, o.from], [o.to, b]] as [number, number][]).filter(([p, q]) => q - p > 0.05)
+      );
+    }
+    for (const [from, to] of pieces) addSpan(horizontal, at, { from, to, height: heightOf.get(seg.roomId) ?? 10, outer: false });
   }
+  for (const o of outer) addSpan(o.horizontal, o.at, { from: o.from, to: o.to, height: OUTER_WALL_HEIGHT_FT, outer: true });
 
   const openings = openingSpans(rooms);
   const solid = rooms.filter((r) => !isPassage(r));
@@ -1373,10 +1487,10 @@ function buildWalls(rooms: FloorPlanRoom[], cutaway: boolean): { walls: WallBox[
   const T = WALL_FT;
 
   for (const line of lines.values()) {
-    const merged: { from: number; to: number; height: number }[] = [];
+    const merged: Span[] = [];
     for (const s of [...line.spans].sort((a, b) => a.from - b.from)) {
       const last = merged.at(-1);
-      if (last && s.from <= last.to + 0.01) {
+      if (last && last.outer === s.outer && s.from <= last.to + 0.01) {
         last.to = Math.max(last.to, s.to);
         last.height = Math.max(last.height, s.height);
       } else merged.push({ ...s });
@@ -1386,7 +1500,7 @@ function buildWalls(rooms: FloorPlanRoom[], cutaway: boolean): { walls: WallBox[
     const lineKey = lineKeyOf(line.horizontal, line.at);
     for (const run of merged) {
       const topAt = (along: number) =>
-        cutaway && !fullAt(line.horizontal, line.at, along) ? Math.min(run.height, CUTAWAY_FT) : run.height;
+        cutaway && !run.outer && !fullAt(line.horizontal, line.at, along) ? Math.min(run.height, CUTAWAY_FT) : run.height;
       const addGlass = (from: number, to: number, y0: number, y1: number) => {
         const yTop = Math.min(y1, topAt((from + to) / 2));
         if (to - from < 0.01 || yTop - y0 < 0.01) return;
@@ -1527,6 +1641,8 @@ const Scene = memo(function Scene({
     []
   );
   const { walls, glass } = useMemo(() => buildWalls(rooms, cutaway), [rooms, cutaway]);
+  const entrance = useMemo(() => entranceOf(rooms), [rooms]);
+  const entranceSign = useMemo(() => makeSignTexture("ENTRANCE"), []);
   const hasPassage = passage.top > 0 || passage.right > 0 || passage.bottom > 0 || passage.left > 0;
   const plot = {
     minX: building.minX - passage.left,
@@ -1653,6 +1769,22 @@ const Scene = memo(function Scene({
             </group>
           );
         })
+      )}
+
+      {entrance && (
+        // Turned so local +z points out of the house through the main door.
+        <group position={[entrance.x, 0, entrance.y]} rotation={[0, Math.atan2(entrance.out[0], entrance.out[1]), 0]}>
+          {/* Doormat just outside the door. */}
+          <mesh position={[0, 0.02, WALL_FT / 2 + 0.6]} receiveShadow>
+            <boxGeometry args={[entrance.width * 0.8, 0.04, 1]} />
+            <meshStandardMaterial color="#8a5a3b" roughness={1} />
+          </mesh>
+          {/* Sign board on the outside of the wall, above the door. */}
+          <mesh position={[0, 7.75, WALL_FT / 2 + 0.03]}>
+            <planeGeometry args={[Math.max(2.6, entrance.width * 0.9), 0.75]} />
+            <meshStandardMaterial map={entranceSign} roughness={0.6} />
+          </mesh>
+        </group>
       )}
 
       {/* Labels stay mounted and are hidden instead: unmounting drei's Html throws a removeChild error. */}

@@ -146,6 +146,7 @@ export const floorPlanSaveSchema = z.object({
         offset: z.number().min(0).max(500),
         swing: z.number().int().min(0).max(3),
         fullHeight: z.boolean(),
+        mainDoor: z.boolean().default(false),
         widthFt: z.number().positive().max(30).optional(),
       })
     )
