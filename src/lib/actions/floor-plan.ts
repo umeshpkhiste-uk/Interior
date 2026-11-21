@@ -265,7 +265,7 @@ export async function saveRoomFinish(projectId: string, input: RoomFinishInput):
   const supabase = await createClient();
   const { error } = await supabase
     .from("project_rooms")
-    .update({ plan_wall_color: parsed.data.wallColor, plan_floor_material: parsed.data.floorMaterial })
+    .update({ plan_wall_color: parsed.data.wallColor, plan_wall_designs: parsed.data.wallDesigns })
     .eq("id", parsed.data.roomId)
     .eq("project_id", projectId)
     .eq("organization_id", ctx.organizationId);

@@ -6,6 +6,7 @@ import {
   type FurnitureItem,
   type FurnitureType,
   type WallGap,
+  type WallDesign,
 } from "@/lib/validations/floor-plan";
 
 export type PlanRotation = 0 | 90 | 180 | 270;
@@ -40,6 +41,8 @@ export type FloorPlanRoom = {
   /** Chosen wall paint (hex) and floor material; null = default for the room type. */
   wallColor: string | null;
   floorMaterial: FloorMaterial | null;
+  /** Design walls picked in the 3D view (own-frame walls). */
+  wallDesigns?: WallDesign[];
 };
 
 export type PlanOpening = {

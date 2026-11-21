@@ -3,7 +3,7 @@
 import type { ReactNode } from "react";
 // Registers react-three-fiber's <mesh>, <group>… JSX element types.
 import type {} from "@react-three/fiber";
-import type { FurnitureItem } from "@/lib/validations/floor-plan";
+import type { FurnitureItem, WallDesignType } from "@/lib/validations/floor-plan";
 
 const C = {
   wood: "#9c6b45",
@@ -400,4 +400,68 @@ export function Furniture3D({ item, roomHeight }: { item: FurnitureItem; roomHei
   })();
   // Parts are laid out from the item's top-left corner; shift so the item is centred on its footprint.
   return <group position={[-w / 2, 0, -h / 2]}>{parts}</group>;
+}
+
+/** How far each wall design stands out from the wall, in feet (also used for walking collisions). */
+export const WALL_DESIGN_DEPTH: Record<WallDesignType, number> = { shelves: 0.8, display_unit: 1.5 };
+
+/**
+ * A design mounted on a wall: x runs along the wall (centred on 0), z points into the room
+ * from the wall face, y is up. Sized to the wall's length and the room's height.
+ */
+export function WallDesign3D({ design, length, height }: { design: WallDesignType; length: number; height: number }) {
+  const top = Math.min(8, height - 0.5);
+  if (design === "shelves") {
+    const w = Math.max(1.5, Math.min(length * 0.7, length - 1));
+    const levels = [3.5, 4.75, 6, 7.25].filter((y) => y < top);
+    return (
+      <group position={[-w / 2, 0, 0]}>
+        {levels.map((y, i) => (
+          <group key={y}>
+            <Box x={0} z={0} w={w} d={0.8} y={y} h={0.12} color={C.wood} />
+            {/* A few books and a vase so the shelves read as shelves. */}
+            <Box x={w * (0.12 + 0.2 * (i % 2))} z={0.15} w={0.5} d={0.5} y={y + 0.12} h={0.7} color={i % 2 ? "#7c8463" : "#b98a5e"} />
+            <Box x={w * (0.12 + 0.2 * (i % 2)) + 0.55} z={0.15} w={0.25} d={0.5} y={y + 0.12} h={0.6} color="#d8d1c3" />
+            <Cyl cx={w * (0.7 - 0.15 * (i % 2))} cz={0.4} rx={0.18} y={y + 0.12} h={0.55} color={i % 2 ? "#e7e1d6" : "#b8794f"} />
+          </group>
+        ))}
+      </group>
+    );
+  }
+  // Display unit: closed base cabinet, wooden back panel, open shelves in three bays above.
+  const w = Math.max(2, length - 0.6);
+  const base = 2.5;
+  const bays = Math.max(1, Math.min(4, Math.round(w / 3)));
+  const shelfYs = [base + 1.4, base + 2.8, base + 4.2].filter((y) => y < top - 0.3);
+  return (
+    <group position={[-w / 2, 0, 0]}>
+      <Box x={0} z={0} w={w} d={1.5} h={base} color={C.cabinet} />
+      <Box x={0} z={0} w={w} d={1.55} y={base} h={0.1} color={C.woodDark} />
+      {Array.from({ length: bays - 1 }, (_, i) => (
+        <Box key={`door${i}`} x={((i + 1) * w) / bays - 0.02} z={1.5} w={0.04} d={0.02} y={0.2} h={base - 0.4} color="#c9c2b4" />
+      ))}
+      <Box x={0} z={0} w={w} d={0.1} y={base + 0.1} h={top - base - 0.1} color={C.wood} />
+      <Box x={0} z={0} w={w} d={1.1} y={top - 0.15} h={0.15} color={C.woodDark} />
+      {Array.from({ length: bays + 1 }, (_, i) => (
+        <Box key={`side${i}`} x={Math.min(w - 0.12, (i * w) / bays)} z={0} w={0.12} d={1.1} y={base + 0.1} h={top - base - 0.25} color={C.woodDark} />
+      ))}
+      {shelfYs.map((y, i) => (
+        <group key={y}>
+          <Box x={0} z={0} w={w} d={1.1} y={y} h={0.08} color={C.woodDark} />
+          {Array.from({ length: bays }, (_, b) => (
+            <Box
+              key={b}
+              x={(b * w) / bays + 0.4 + ((i + b) % 2) * 0.6}
+              z={0.3}
+              w={0.45}
+              d={0.45}
+              y={y + 0.08}
+              h={0.5 + ((i + b) % 3) * 0.15}
+              color={["#7c8463", "#d8d1c3", "#b8794f"][(i + b) % 3]}
+            />
+          ))}
+        </group>
+      ))}
+    </group>
+  );
 }

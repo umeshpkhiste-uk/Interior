@@ -103,6 +103,22 @@ export const wallGapSchema = z
 
 export type WallGap = z.infer<typeof wallGapSchema>;
 
+/** Wall-mounted designs that can be put on a design wall in the 3D view. */
+export const WALL_DESIGNS = ["shelves", "display_unit"] as const;
+export type WallDesignType = (typeof WALL_DESIGNS)[number];
+export const WALL_DESIGN_LABELS: Record<WallDesignType, string> = {
+  shelves: "Floating shelves",
+  display_unit: "Display unit",
+};
+
+/** A design wall: one of the room's own walls, always shown full height in 3D, with an optional design. */
+export const wallDesignSchema = z.object({
+  wall: z.enum(PLAN_WALLS),
+  design: z.enum(WALL_DESIGNS).nullable(),
+});
+
+export type WallDesign = z.infer<typeof wallDesignSchema>;
+
 export const floorPlanSaveSchema = z.object({
   passage: passageSchema,
   rooms: z
@@ -218,6 +234,7 @@ export const roomFinishSchema = z.object({
   roomId: z.string().uuid(),
   wallColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).nullable(),
   floorMaterial: z.enum(FLOOR_MATERIALS).nullable(),
+  wallDesigns: z.array(wallDesignSchema).max(4),
 });
 
 export type RoomFinishInput = z.infer<typeof roomFinishSchema>;

@@ -30,16 +30,21 @@ import {
   isPassage,
   itemPlanRect,
   openingSpans,
+  toPlanSide,
   wallSegments,
   type FloorPlanRoom,
   type OpeningSpan,
+  type Wall,
 } from "@/lib/calculations/floor-plan";
 import {
   DEFAULT_WALL_COLOR,
   FLOOR_MATERIALS,
   FLOOR_MATERIAL_INFO,
   PAINT_COLORS,
+  WALL_DESIGNS,
+  WALL_DESIGN_LABELS,
   type FloorMaterial,
+  type WallDesignType,
   type FurnitureType,
   type PlanPassage,
   type RoomFinishInput,
@@ -47,7 +52,7 @@ import {
 import { saveHouseFloor, saveRoomFinish } from "@/lib/actions/floor-plan";
 import { cn } from "@/lib/utils";
 import { floorKind, HEDGE_FT, WALL_FT, type FloorKind } from "./floor-plan-symbols";
-import { Furniture3D } from "./floor-plan-3d-models";
+import { Furniture3D, WALL_DESIGN_DEPTH, WallDesign3D } from "./floor-plan-3d-models";
 
 type CameraView = "walk" | "iso" | "top" | "front" | "custom";
 /** Height slider stops: 0 = standing in a room, 100 = straight down. */
@@ -94,7 +99,9 @@ function boundsOf(rooms: FloorPlanRoom[]): Bounds {
   return { minX, minY, maxX, maxY };
 }
 
-type Finish = Pick<FloorPlanRoom, "wallColor" | "floorMaterial">;
+type Finish = Pick<FloorPlanRoom, "wallColor" | "floorMaterial" | "wallDesigns">;
+/** A wall picked in the model: one of a room's own walls. */
+type WallPick = { roomId: string; wall: Wall };
 
 export function FloorPlan3DView({
   projectId,
@@ -108,7 +115,9 @@ export function FloorPlan3DView({
   passage: PlanPassage;
 }) {
   const [finishes, setFinishes] = useState<Record<string, Finish>>(() =>
-    Object.fromEntries(savedRooms.map((r) => [r.id, { wallColor: r.wallColor, floorMaterial: r.floorMaterial }]))
+    Object.fromEntries(
+      savedRooms.map((r) => [r.id, { wallColor: r.wallColor, floorMaterial: r.floorMaterial, wallDesigns: r.wallDesigns ?? [] }])
+    )
   );
   // The floor is one finish for the whole house.
   const [houseFloor, setHouseFloor] = useState<FloorMaterial | null>(() => savedRooms[0]?.floorMaterial ?? null);
@@ -117,6 +126,15 @@ export function FloorPlan3DView({
     [savedRooms, finishes, houseFloor]
   );
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedWall, setSelectedWall] = useState<WallPick | null>(null);
+  const selectRoom = useCallback((id: string | null) => {
+    setSelectedId(id);
+    setSelectedWall(null);
+  }, []);
+  const selectWall = useCallback((pick: WallPick) => {
+    setSelectedId(pick.roomId);
+    setSelectedWall(pick);
+  }, []);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
   const pending = useRef(new Map<string, RoomFinishInput>());
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -147,10 +165,22 @@ export function FloorPlan3DView({
   function updateFinish(roomId: string, patch: Partial<Finish>) {
     const next = { ...finishes[roomId], ...patch };
     setFinishes((f) => ({ ...f, [roomId]: next }));
-    pending.current.set(roomId, { roomId, wallColor: next.wallColor, floorMaterial: next.floorMaterial });
+    pending.current.set(roomId, {
+      roomId,
+      wallColor: next.wallColor,
+      floorMaterial: next.floorMaterial,
+      wallDesigns: next.wallDesigns ?? [],
+    });
     setSaveState("saving");
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => void flush(), SAVE_DELAY_MS);
+  }
+
+  /** Makes the wall a design wall with the given design (null = full height only), or removes it (undefined). */
+  function setWallDesign(pick: WallPick, design: WallDesignType | null | undefined) {
+    const current = finishes[pick.roomId]?.wallDesigns ?? [];
+    const others = current.filter((d) => d.wall !== pick.wall);
+    updateFinish(pick.roomId, { wallDesigns: design === undefined ? others : [...others, { wall: pick.wall, design }] });
   }
 
   function updateHouseFloor(floor: FloorMaterial | null) {
@@ -213,7 +243,24 @@ export function FloorPlan3DView({
           };
         })
     );
-    return [...structure, ...furniture];
+    const designs = rooms.flatMap((room) =>
+      (room.wallDesigns ?? []).flatMap(({ wall, design }) => {
+        if (!design) return [];
+        const line = roomWallLine(room, wall);
+        const depth = WALL_FT / 2 + WALL_DESIGN_DEPTH[design];
+        const [x0, x1] = line.horizontal ? [line.from, line.to] : [line.at, line.at + line.inward[0] * depth];
+        const [z0, z1] = line.horizontal ? [line.at, line.at + line.inward[1] * depth] : [line.from, line.to];
+        return [
+          {
+            minX: Math.min(x0, x1) - center.x,
+            maxX: Math.max(x0, x1) - center.x,
+            minZ: Math.min(z0, z1) - center.z,
+            maxZ: Math.max(z0, z1) - center.z,
+          },
+        ];
+      })
+    );
+    return [...structure, ...furniture, ...designs];
   }, [rooms, center]);
   const indoorRooms = useMemo(() => {
     const inside = rooms.filter((r) => !isPassage(r));
@@ -459,7 +506,9 @@ export function FloorPlan3DView({
                 eyeLevel={walk}
                 labels={labels}
                 selectedId={selectedId}
-                onSelect={setSelectedId}
+                selectedWall={selectedWall}
+                onSelect={selectRoom}
+                onSelectWall={selectWall}
                 onWalkTo={walkTo}
               />
             </group>
@@ -521,8 +570,10 @@ export function FloorPlan3DView({
         <FinishesPanel
           rooms={rooms}
           selected={selectedRoom}
-          onSelect={setSelectedId}
+          selectedWall={selectedWall}
+          onSelect={selectRoom}
           onChange={updateFinish}
+          onWallDesign={setWallDesign}
           houseFloor={houseFloor}
           onFloorChange={updateHouseFloor}
           saveState={saveState}
@@ -604,6 +655,8 @@ function FinishesPanel({
   selected,
   onSelect,
   onChange,
+  selectedWall,
+  onWallDesign,
   houseFloor,
   onFloorChange,
   saveState,
@@ -612,11 +665,21 @@ function FinishesPanel({
   selected: FloorPlanRoom | null;
   onSelect: (id: string | null) => void;
   onChange: (roomId: string, patch: Partial<Finish>) => void;
+  selectedWall: WallPick | null;
+  onWallDesign: (pick: WallPick, design: WallDesignType | null | undefined) => void;
   houseFloor: FloorMaterial | null;
   onFloorChange: (floor: FloorMaterial | null) => void;
   saveState: "idle" | "saving" | "saved";
 }) {
   const currentFloor = floorKind({ floorMaterial: houseFloor });
+  const wallArea = (room: FloorPlanRoom, wall: Wall) => roomWallLine(room, wall).length * room.heightFt;
+  const designWalls = rooms.flatMap((room) => (room.wallDesigns ?? []).map((d) => ({ room, ...d, area: wallArea(room, d.wall) })));
+  const pickedRoom = selectedWall ? rooms.find((r) => r.id === selectedWall.roomId) ?? null : null;
+  const pickedDesign = pickedRoom?.wallDesigns?.find((d) => d.wall === selectedWall?.wall);
+  const sideName = (room: FloorPlanRoom, wall: Wall) => {
+    const side = toPlanSide(wall, room.rotation);
+    return `${side[0].toUpperCase()}${side.slice(1)} wall`;
+  };
   const currentWall = selected?.wallColor ?? DEFAULT_WALL_COLOR;
   return (
     <div className="flex flex-col gap-4 rounded-lg border p-3">
@@ -650,8 +713,8 @@ function FinishesPanel({
 
       {!selected ? (
         <p className="text-xs text-muted-foreground">
-          Click a room in the model, or choose one above, to set its wall paint. Changes save automatically and show on
-          the 2D plan too.
+          Click a room in the model, or choose one above, to set its wall paint. Click a wall to make it a design wall.
+          Changes save automatically and show on the 2D plan too.
         </p>
       ) : (
         <>
@@ -703,7 +766,79 @@ function FinishesPanel({
         </>
       )}
 
-      <div className="flex flex-col gap-2">
+      {selected && (
+        <div className="flex flex-col gap-2 border-t pt-3">
+          <p className="text-xs font-medium text-muted-foreground">Design wall</p>
+          {!pickedRoom || !selectedWall ? (
+            <p className="text-xs text-muted-foreground">
+              Click a wall of {selected.name} in the model. A design wall always shows at full height, so you can plan
+              shelves or a display unit on it.
+            </p>
+          ) : (
+            <>
+              <p className="text-xs">
+                <span className="font-medium">
+                  {pickedRoom.name} · {sideName(pickedRoom, selectedWall.wall)}
+                </span>{" "}
+                <span className="text-muted-foreground">
+                  {roomWallLine(pickedRoom, selectedWall.wall).length.toFixed(1)} × {pickedRoom.heightFt.toFixed(1)} ft ={" "}
+                  {wallArea(pickedRoom, selectedWall.wall).toFixed(1)} sq ft
+                </span>
+              </p>
+              <div className="grid grid-cols-1 gap-1.5">
+                {([null, ...WALL_DESIGNS] as (WallDesignType | null)[]).map((d) => {
+                  const on = pickedDesign !== undefined && pickedDesign.design === d;
+                  return (
+                    <button
+                      key={d ?? "plain"}
+                      type="button"
+                      aria-pressed={on}
+                      onClick={() => onWallDesign(selectedWall, d)}
+                      className={cn(
+                        "rounded-md border px-2 py-1.5 text-left text-xs transition hover:bg-muted/60",
+                        on && "border-primary bg-muted"
+                      )}
+                    >
+                      {d ? WALL_DESIGN_LABELS[d] : "Full height only (no design yet)"}
+                    </button>
+                  );
+                })}
+              </div>
+              {pickedDesign && (
+                <Button size="xs" variant="ghost" className="self-end" onClick={() => onWallDesign(selectedWall, undefined)}>
+                  Remove design wall
+                </Button>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {designWalls.length > 0 && (
+        <div className="flex flex-col gap-1.5 border-t pt-3">
+          <p className="text-xs font-medium text-muted-foreground">Design walls in this house</p>
+          {designWalls.map((d) => (
+            <button
+              key={`${d.room.id}-${d.wall}`}
+              type="button"
+              onClick={() => onSelect(d.room.id)}
+              className="flex items-baseline justify-between gap-2 text-left text-xs hover:underline"
+            >
+              <span>
+                {d.room.name} · {sideName(d.room, d.wall)}
+                <span className="text-muted-foreground"> — {d.design ? WALL_DESIGN_LABELS[d.design] : "full height"}</span>
+              </span>
+              <span className="shrink-0 tabular-nums">{d.area.toFixed(1)} sq ft</span>
+            </button>
+          ))}
+          <p className="flex justify-between border-t pt-1.5 text-xs font-medium">
+            <span>Total</span>
+            <span className="tabular-nums">{designWalls.reduce((sum, d) => sum + d.area, 0).toFixed(1)} sq ft</span>
+          </p>
+        </div>
+      )}
+
+      <div className="flex flex-col gap-2 border-t pt-3">
         <p className="text-xs font-medium text-muted-foreground">Floor (whole house)</p>
         <div className="grid grid-cols-2 gap-1.5">
           {FLOOR_MATERIALS.map((m) => {
@@ -1135,8 +1270,42 @@ function FloorPlane({
   );
 }
 
-type WallBox = { x: number; z: number; w: number; d: number; y0: number; y1: number; color: string };
-type GlassPane = Omit<WallBox, "color">;
+type WallBox = {
+  x: number;
+  z: number;
+  w: number;
+  d: number;
+  y0: number;
+  y1: number;
+  color: string;
+  /** The room this skin faces (null = outside), and the wall line it is on. */
+  roomId: string | null;
+  lineKey: string;
+};
+type GlassPane = Pick<WallBox, "x" | "z" | "w" | "d" | "y0" | "y1">;
+
+const lineKeyOf = (horizontal: boolean, at: number) => `${horizontal ? "h" : "v"}:${Math.round(at * 20)}`;
+
+/** One of a room's own walls on the plan: its line, extent, and the direction into the room. */
+function roomWallLine(room: FloorPlanRoom, wall: Wall) {
+  const { w, h } = footprint(room);
+  const side = toPlanSide(wall, room.rotation);
+  const horizontal = side === "top" || side === "bottom";
+  const at = side === "top" ? room.y : side === "bottom" ? room.y + h : side === "left" ? room.x : room.x + w;
+  const [from, to] = horizontal ? [room.x, room.x + w] : [room.y, room.y + h];
+  const inward: [number, number] = side === "top" ? [0, 1] : side === "bottom" ? [0, -1] : side === "left" ? [1, 0] : [-1, 0];
+  return { side, horizontal, at, from, to, inward, length: to - from };
+}
+
+/** The room's own wall lying on a wall line (the one a clicked wall skin belongs to). */
+function wallOnLine(room: FloorPlanRoom, lineKey: string): Wall | null {
+  return (
+    (["top", "right", "bottom", "left"] as Wall[]).find((wall) => {
+      const line = roomWallLine(room, wall);
+      return lineKeyOf(line.horizontal, line.at) === lineKey;
+    }) ?? null
+  );
+}
 
 /**
  * Turns the plan's wall segments into 3D wall blocks. Coinciding walls of neighbouring
@@ -1145,12 +1314,16 @@ type GlassPane = Omit<WallBox, "color">;
  * skins so each face carries the paint of the room on that side.
  */
 function buildWalls(rooms: FloorPlanRoom[], cutaway: boolean): { walls: WallBox[]; glass: GlassPane[] } {
+  // Design walls always stand full height, even in the cut-away view.
+  const designLines = rooms.flatMap((room) => (room.wallDesigns ?? []).map((d) => roomWallLine(room, d.wall)));
+  const fullAt = (horizontal: boolean, at: number, along: number) =>
+    designLines.some((l) => l.horizontal === horizontal && Math.abs(l.at - at) < 0.2 && along > l.from - 0.01 && along < l.to + 0.01);
   const heightOf = new Map(rooms.map((r) => [r.id, r.heightFt]));
   const lines = new Map<string, { horizontal: boolean; at: number; spans: { from: number; to: number; height: number }[] }>();
   for (const seg of wallSegments(rooms)) {
     const horizontal = seg.y1 === seg.y2;
     const at = horizontal ? seg.y1 : seg.x1;
-    const key = `${horizontal ? "h" : "v"}:${Math.round(at * 20)}`;
+    const key = lineKeyOf(horizontal, at);
     const line = lines.get(key) ?? { horizontal, at, spans: [] };
     line.spans.push({
       from: horizontal ? Math.min(seg.x1, seg.x2) : Math.min(seg.y1, seg.y2),
@@ -1162,10 +1335,8 @@ function buildWalls(rooms: FloorPlanRoom[], cutaway: boolean): { walls: WallBox[
 
   const openings = openingSpans(rooms);
   const solid = rooms.filter((r) => !isPassage(r));
-  const paintAt = (px: number, py: number) => {
-    const room = solid.find((r) => containsPoint(r, px, py));
-    return room ? room.wallColor ?? DEFAULT_WALL_COLOR : EXTERIOR_WALL_COLOR;
-  };
+  const roomAt = (px: number, py: number) => solid.find((r) => containsPoint(r, px, py)) ?? null;
+  const paintOf = (room: FloorPlanRoom | null) => (room ? room.wallColor ?? DEFAULT_WALL_COLOR : EXTERIOR_WALL_COLOR);
   const edgesH = [...new Set(rooms.flatMap((r) => [r.x, r.x + footprint(r).w]))];
   const edgesV = [...new Set(rooms.flatMap((r) => [r.y, r.y + footprint(r).h]))];
   const walls: WallBox[] = [];
@@ -1183,10 +1354,12 @@ function buildWalls(rooms: FloorPlanRoom[], cutaway: boolean): { walls: WallBox[
     }
     const cuts = openings.filter((o) => o.horizontal === line.horizontal && Math.abs(o.at - line.at) < 0.2);
 
+    const lineKey = lineKeyOf(line.horizontal, line.at);
     for (const run of merged) {
-      const top = cutaway ? Math.min(run.height, CUTAWAY_FT) : run.height;
+      const topAt = (along: number) =>
+        cutaway && !fullAt(line.horizontal, line.at, along) ? Math.min(run.height, CUTAWAY_FT) : run.height;
       const addGlass = (from: number, to: number, y0: number, y1: number) => {
-        const yTop = Math.min(y1, top);
+        const yTop = Math.min(y1, topAt((from + to) / 2));
         if (to - from < 0.01 || yTop - y0 < 0.01) return;
         glass.push(
           line.horizontal
@@ -1195,8 +1368,7 @@ function buildWalls(rooms: FloorPlanRoom[], cutaway: boolean): { walls: WallBox[
         );
       };
       const add = (from: number, to: number, y0: number, y1: number, extendEnds: boolean) => {
-        const yTop = Math.min(y1, top);
-        if (to - from < 0.01 || yTop - y0 < 0.01) return;
+        if (to - from < 0.01) return;
         // Split where rooms start/end along the wall, so each piece has one room per side.
         const stops = [from, ...(line.horizontal ? edgesH : edgesV).filter((e) => e > from + 0.01 && e < to - 0.01), to].sort(
           (p, q) => p - q
@@ -1207,15 +1379,18 @@ function buildWalls(rooms: FloorPlanRoom[], cutaway: boolean): { walls: WallBox[
           const a = extendEnds && s0 === run.from ? s0 - T / 2 : s0;
           const b = extendEnds && s1 === run.to ? s1 + T / 2 : s1;
           const mid = (s0 + s1) / 2;
+          const yTop = Math.min(y1, topAt(mid));
+          if (yTop - y0 < 0.01) continue;
           const [before, after] = line.horizontal
-            ? [paintAt(mid, line.at - T), paintAt(mid, line.at + T)]
-            : [paintAt(line.at - T, mid), paintAt(line.at + T, mid)];
+            ? [roomAt(mid, line.at - T), roomAt(mid, line.at + T)]
+            : [roomAt(line.at - T, mid), roomAt(line.at + T, mid)];
+          const skin = (room: FloorPlanRoom | null) => ({ y0, y1: yTop, color: paintOf(room), roomId: room?.id ?? null, lineKey });
           if (line.horizontal) {
-            walls.push({ x: a, z: line.at - T / 2, w: b - a, d: T / 2, y0, y1: yTop, color: before });
-            walls.push({ x: a, z: line.at, w: b - a, d: T / 2, y0, y1: yTop, color: after });
+            walls.push({ x: a, z: line.at - T / 2, w: b - a, d: T / 2, ...skin(before) });
+            walls.push({ x: a, z: line.at, w: b - a, d: T / 2, ...skin(after) });
           } else {
-            walls.push({ x: line.at - T / 2, z: a, w: T / 2, d: b - a, y0, y1: yTop, color: before });
-            walls.push({ x: line.at, z: a, w: T / 2, d: b - a, y0, y1: yTop, color: after });
+            walls.push({ x: line.at - T / 2, z: a, w: T / 2, d: b - a, ...skin(before) });
+            walls.push({ x: line.at, z: a, w: T / 2, d: b - a, ...skin(after) });
           }
         }
       };
@@ -1246,7 +1421,9 @@ const Scene = memo(function Scene({
   eyeLevel,
   labels,
   selectedId,
+  selectedWall,
   onSelect,
+  onSelectWall,
   onWalkTo,
 }: {
   rooms: FloorPlanRoom[];
@@ -1256,7 +1433,9 @@ const Scene = memo(function Scene({
   eyeLevel: boolean;
   labels: boolean;
   selectedId: string | null;
+  selectedWall: WallPick | null;
   onSelect: (id: string) => void;
+  onSelectWall: (pick: WallPick) => void;
   onWalkTo: (point: THREE.Vector3, roomId: string | null) => void;
 }) {
   // A click selects a room, but not the end of an orbit drag.
@@ -1292,6 +1471,21 @@ const Scene = memo(function Scene({
       return { id, at };
     });
   };
+  // Clicking the inside face of a wall picks that wall (for wall paint and wall designs).
+  const pickWall = (box: WallBox) => (e: ThreeEvent<MouseEvent>) => {
+    e.stopPropagation();
+    if (e.delta > 4 || !box.roomId) return;
+    const room = rooms.find((r) => r.id === box.roomId);
+    const wall = room && wallOnLine(room, box.lineKey);
+    if (room && wall) onSelectWall({ roomId: room.id, wall });
+  };
+  const selectedRoomForWall = selectedWall ? rooms.find((r) => r.id === selectedWall.roomId) : undefined;
+  const selectedLineKey = selectedRoomForWall
+    ? (() => {
+        const l = roomWallLine(selectedRoomForWall, selectedWall!.wall);
+        return lineKeyOf(l.horizontal, l.at);
+      })()
+    : null;
   const standAt = (roomId: string | null) => (e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation();
     onWalkTo(e.point.clone(), roomId);
@@ -1368,12 +1562,43 @@ const Scene = memo(function Scene({
             );
           })}
 
-      {walls.map((b, i) => (
-        <mesh key={`w${i}`} position={[b.x + b.w / 2, (b.y0 + b.y1) / 2, b.z + b.d / 2]} castShadow receiveShadow>
-          <boxGeometry args={[b.w, b.y1 - b.y0, b.d]} />
-          <meshStandardMaterial color={b.color} roughness={0.9} />
-        </mesh>
-      ))}
+      {walls.map((b, i) => {
+        const picked = b.roomId !== null && b.roomId === selectedWall?.roomId && b.lineKey === selectedLineKey;
+        return (
+          <mesh
+            key={`w${i}`}
+            position={[b.x + b.w / 2, (b.y0 + b.y1) / 2, b.z + b.d / 2]}
+            castShadow
+            receiveShadow
+            onClick={pickWall(b)}
+          >
+            <boxGeometry args={[b.w, b.y1 - b.y0, b.d]} />
+            <meshStandardMaterial
+              color={b.color}
+              roughness={0.9}
+              emissive={picked ? "#f59e0b" : "#000000"}
+              emissiveIntensity={picked ? 0.25 : 0}
+            />
+          </mesh>
+        );
+      })}
+
+      {rooms.flatMap((room) =>
+        (room.wallDesigns ?? []).flatMap(({ wall, design }) => {
+          if (!design) return [];
+          const line = roomWallLine(room, wall);
+          const mid = (line.from + line.to) / 2;
+          const face = line.at + (line.horizontal ? line.inward[1] : line.inward[0]) * (WALL_FT / 2);
+          const position: [number, number, number] = line.horizontal ? [mid, 0.012, face] : [face, 0.012, mid];
+          // Turn the design's +z (out of the wall) to point into the room.
+          const angle = Math.atan2(line.inward[0], line.inward[1]);
+          return [
+            <group key={`design-${room.id}-${wall}`} position={position} rotation={[0, angle, 0]} onClick={pick(room.id)}>
+              <WallDesign3D design={design} length={line.length} height={room.heightFt} />
+            </group>,
+          ];
+        })
+      )}
       {glass.map((b, i) => (
         <mesh key={`g${i}`} position={[b.x + b.w / 2, (b.y0 + b.y1) / 2, b.z + b.d / 2]}>
           <boxGeometry args={[Math.max(b.w, 0.04) * (b.w < b.d ? 0.25 : 1), b.y1 - b.y0, Math.max(b.d, 0.04) * (b.d < b.w ? 0.25 : 1)]} />

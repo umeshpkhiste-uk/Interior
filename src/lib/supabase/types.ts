@@ -2552,6 +2552,7 @@ export type Database = {
           plan_open_walls: string[]
           plan_rotation: number
           plan_wall_color: string | null
+          plan_wall_designs: Json
           plan_wall_gaps: Json
           plan_x: number | null
           plan_y: number | null
@@ -2580,6 +2581,7 @@ export type Database = {
           plan_open_walls?: string[]
           plan_rotation?: number
           plan_wall_color?: string | null
+          plan_wall_designs?: Json
           plan_wall_gaps?: Json
           plan_x?: number | null
           plan_y?: number | null
@@ -2608,6 +2610,7 @@ export type Database = {
           plan_open_walls?: string[]
           plan_rotation?: number
           plan_wall_color?: string | null
+          plan_wall_designs?: Json
           plan_wall_gaps?: Json
           plan_x?: number | null
           plan_y?: number | null

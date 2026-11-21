@@ -7,6 +7,7 @@ import {
   furnitureItemSchema,
   passageSchema,
   wallGapSchema,
+  wallDesignSchema,
   type FloorMaterial,
   type PlanPassage,
 } from "@/lib/validations/floor-plan";
@@ -120,6 +121,7 @@ export async function getFloorPlan(organizationId: string, projectId: string): P
       // One floor for the whole house, so rooms don't look like separate buildings.
       floorMaterial: houseFloor,
       wallGaps: wallGapSchema.array().safeParse(row.plan_wall_gaps).data ?? [],
+      wallDesigns: wallDesignSchema.array().safeParse(row.plan_wall_designs).data ?? [],
       openWalls: (row.plan_open_walls ?? []).filter((w): w is (typeof PLAN_WALLS)[number] =>
         (PLAN_WALLS as readonly string[]).includes(w)
       ),
