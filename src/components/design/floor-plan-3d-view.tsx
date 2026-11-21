@@ -34,6 +34,8 @@ import {
   itemPlanRect,
   openingSpans,
   entranceOf,
+  ENTRY_DEPTH_FT,
+  toOwnWall,
   DESIGN_WALL_HEIGHT_FT,
   toPlanSide,
   wallGapLine,
@@ -693,6 +695,7 @@ export function FloorPlan3DView({
           selectedWall={selectedWall}
           selectedThing={selectedThing}
           onDeleteThing={deleteSelected}
+          onPickWall={selectWall}
           onSelect={selectRoom}
           onChange={updateFinish}
           onWallDesign={setWallDesign}
@@ -780,6 +783,7 @@ function FinishesPanel({
   selectedWall,
   selectedThing,
   onDeleteThing,
+  onPickWall,
   onWallDesign,
   houseFloor,
   onFloorChange,
@@ -792,6 +796,7 @@ function FinishesPanel({
   selectedWall: WallPick | null;
   selectedThing: ThingPick | null;
   onDeleteThing: () => void;
+  onPickWall: (pick: WallPick) => void;
   onWallDesign: (pick: WallPick, design: WallDesignType | null | undefined) => void;
   houseFloor: FloorMaterial | null;
   onFloorChange: (floor: FloorMaterial | null) => void;
@@ -917,10 +922,34 @@ function FinishesPanel({
       {selected && (
         <div className="flex flex-col gap-2 border-t pt-3">
           <p className="text-xs font-medium text-muted-foreground">Design wall</p>
+          {/* Pick a wall here too: in the model, furniture in front of a wall (e.g. a kitchen counter) can hide it. */}
+          <div className="grid grid-cols-4 gap-1">
+            {(["top", "right", "bottom", "left"] as Wall[]).map((side) => {
+              const wall = toOwnWall(side, selected.rotation);
+              const on = selectedWall?.roomId === selected.id && selectedWall.wall === wall;
+              const isDesign = selected.wallDesigns?.some((d) => d.wall === wall);
+              const open = selected.openWalls.includes(wall);
+              return (
+                <Button
+                  key={side}
+                  size="xs"
+                  variant={on ? "secondary" : "outline"}
+                  aria-pressed={on}
+                  disabled={open}
+                  title={open ? "This side is open (no wall)" : undefined}
+                  aria-label={`${side[0].toUpperCase()}${side.slice(1)} wall`}
+                  onClick={() => onPickWall({ roomId: selected.id, wall })}
+                >
+                  {side[0].toUpperCase() + side.slice(1)}
+                  {isDesign ? " ●" : ""}
+                </Button>
+              );
+            })}
+          </div>
           {!pickedRoom || !selectedWall ? (
             <p className="text-xs text-muted-foreground">
-              Click a wall of {selected.name} in the model. A design wall always shows at full height, so you can plan
-              shelves or a display unit on it.
+              Pick a wall of {selected.name} above or click one in the model. A design wall stands 12 ft tall, so you can
+              plan shelves or a display unit on it. A room can have several design walls.
             </p>
           ) : (
             <>
@@ -1787,7 +1816,13 @@ const Scene = memo(function Scene({
           .map((room) => {
             const { w, h } = footprint(room);
             return (
-              <mesh key={`ceiling-${room.id}`} position={[room.x + w / 2, room.heightFt, room.y + h / 2]} rotation={[Math.PI / 2, 0, 0]}>
+              <mesh
+                key={`ceiling-${room.id}`}
+                position={[room.x + w / 2, room.heightFt, room.y + h / 2]}
+                rotation={[Math.PI / 2, 0, 0]}
+                // The ceiling stops clicks, so a raised (12 ft) wall above it can't steal them.
+                onClick={(e) => e.stopPropagation()}
+              >
                 <planeGeometry args={[w, h]} />
                 <meshStandardMaterial color="#fbfaf7" roughness={1} />
               </mesh>
@@ -1869,8 +1904,19 @@ const Scene = memo(function Scene({
       {entrance && (
         // Turned so local +z points out of the house through the main door.
         <group position={[entrance.x, 0, entrance.y]} rotation={[0, Math.atan2(entrance.out[0], entrance.out[1]), 0]}>
+          {/* Paved main-entry landing with step edges, as on the plan. */}
+          <mesh position={[0, 0.04, WALL_FT / 2 + ENTRY_DEPTH_FT / 2]} receiveShadow>
+            <boxGeometry args={[entrance.width + 2, 0.08, ENTRY_DEPTH_FT]} />
+            <meshStandardMaterial color="#d6d1c7" roughness={0.9} />
+          </mesh>
+          {[ENTRY_DEPTH_FT - 1.2, ENTRY_DEPTH_FT - 0.8, ENTRY_DEPTH_FT - 0.4].map((t) => (
+            <mesh key={t} position={[0, 0.085, WALL_FT / 2 + t]}>
+              <boxGeometry args={[entrance.width + 2, 0.01, 0.05]} />
+              <meshStandardMaterial color="#8f877b" />
+            </mesh>
+          ))}
           {/* Doormat just outside the door. */}
-          <mesh position={[0, 0.02, WALL_FT / 2 + 0.6]} receiveShadow>
+          <mesh position={[0, 0.1, WALL_FT / 2 + 0.6]} receiveShadow>
             <boxGeometry args={[entrance.width * 0.8, 0.04, 1]} />
             <meshStandardMaterial color="#8a5a3b" roughness={1} />
           </mesh>

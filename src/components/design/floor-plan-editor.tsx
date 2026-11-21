@@ -52,6 +52,7 @@ import {
   wallPieceAt,
   wallSegments,
   entranceOf,
+  entryLanding,
   WALLS,
   type FloorPlanRoom,
   type WallSegment,
@@ -135,7 +136,18 @@ function plotBounds(rooms: FloorPlanRoom[], passage: PlanPassage) {
 }
 
 function frameFor(rooms: FloorPlanRoom[], passage: PlanPassage) {
-  const b = plotBounds(rooms, passage).outer;
+  const p = plotBounds(rooms, passage).outer;
+  // Keep the main-entry landing in view too.
+  const entrance = entranceOf(rooms);
+  const l = entrance ? entryLanding(entrance) : null;
+  const b = l
+    ? {
+        minX: Math.min(p.minX, l.x),
+        minY: Math.min(p.minY, l.y),
+        maxX: Math.max(p.maxX, l.x + l.w),
+        maxY: Math.max(p.maxY, l.y + l.h),
+      }
+    : p;
   return {
     x: b.minX - PAD.left,
     y: b.minY - PAD.top,
@@ -1211,37 +1223,7 @@ export function FloorPlanEditor({
             );
           })}
 
-          {entrance && (
-            <g pointerEvents="none" fill="#b45309" stroke="#b45309">
-              {/* Arrow from outside pointing in through the main door, with a label. */}
-              <line
-                x1={entrance.x + entrance.out[0] * 2.4}
-                y1={entrance.y + entrance.out[1] * 2.4}
-                x2={entrance.x + entrance.out[0] * 0.75}
-                y2={entrance.y + entrance.out[1] * 0.75}
-                strokeWidth={0.12}
-              />
-              <path
-                d={`M ${entrance.x + entrance.out[0] * 0.45} ${entrance.y + entrance.out[1] * 0.45} l ${
-                  entrance.out[0] * 0.5 + entrance.out[1] * 0.35
-                } ${entrance.out[1] * 0.5 + entrance.out[0] * 0.35} l ${-entrance.out[1] * 0.7} ${-entrance.out[0] * 0.7} Z`}
-                stroke="none"
-              />
-              <text
-                // Beside the arrow's tail: above it for a sideways arrow, past its end for an up/down one.
-                x={entrance.x + entrance.out[0] * 1.6}
-                y={entrance.out[1] === 0 ? entrance.y - 0.45 : entrance.y + entrance.out[1] * 3 + 0.18}
-                fontSize={0.5}
-                fontWeight={700}
-                textAnchor="middle"
-                stroke="none"
-                fontFamily="Arial, Helvetica, sans-serif"
-                letterSpacing={0.05}
-              >
-                ENTRANCE
-              </text>
-            </g>
-          )}
+          {entrance && <MainEntry entrance={entrance} />}
 
           {wallTool && (
             <g>
@@ -1759,5 +1741,54 @@ function DimensionInput({
         onBlur={() => setEditing(false)}
       />
     </label>
+  );
+}
+
+/**
+ * The main entry outside the front door: a paved landing with steps down at its outer edge,
+ * an arrow pointing in, and a "MAIN ENTRY" label.
+ */
+function MainEntry({ entrance }: { entrance: NonNullable<ReturnType<typeof entranceOf>> }) {
+  const l = entryLanding(entrance);
+  const [ox, oy] = entrance.out;
+  const sideways = ox !== 0;
+  // Point at a distance `t` from the wall, along the middle of the landing.
+  const at = (t: number) => ({ x: entrance.x + ox * (0.16 + t), y: entrance.y + oy * (0.16 + t) });
+  const depth = sideways ? l.w : l.h;
+  const steps = [depth - 1.2, depth - 0.8, depth - 0.4];
+  const tip = at(0.35);
+  const base = at(0.95);
+  const half = 0.32;
+  const label = at(1.75);
+  return (
+    <g pointerEvents="none">
+      <rect x={l.x} y={l.y} width={l.w} height={l.h} fill="#dedad2" stroke="#8f877b" strokeWidth={0.04} />
+      {steps.map((t) => {
+        const p = at(t);
+        return sideways ? (
+          <line key={t} x1={p.x} y1={l.y} x2={p.x} y2={l.y + l.h} stroke="#8f877b" strokeWidth={0.04} />
+        ) : (
+          <line key={t} x1={l.x} y1={p.y} x2={l.x + l.w} y2={p.y} stroke="#8f877b" strokeWidth={0.04} />
+        );
+      })}
+      <path
+        d={`M ${tip.x} ${tip.y} L ${base.x + oy * half} ${base.y + ox * half} L ${base.x - oy * half} ${base.y - ox * half} Z`}
+        fill="#2b2b2b"
+      />
+      <text
+        x={label.x}
+        y={label.y}
+        fontSize={0.4}
+        fontWeight={700}
+        textAnchor="middle"
+        dominantBaseline="middle"
+        fill="#2b2b2b"
+        fontFamily="Arial, Helvetica, sans-serif"
+        letterSpacing={0.04}
+        transform={sideways ? `rotate(${ox > 0 ? 90 : -90} ${label.x} ${label.y})` : undefined}
+      >
+        MAIN ENTRY
+      </text>
+    </g>
   );
 }

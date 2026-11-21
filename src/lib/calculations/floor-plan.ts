@@ -690,3 +690,18 @@ export function entranceOf(rooms: FloorPlanRoom[]): { x: number; y: number; widt
   const out: [number, number] = plusInside && !minusInside ? [-plus[0], -plus[1]] : plus;
   return { x, y, width: door.to - door.from, out };
 }
+
+/** How far the main-entry landing reaches out from the house, in feet. */
+export const ENTRY_DEPTH_FT = 3.5;
+
+/** The paved landing (with steps) outside the main door, as a plan rectangle. */
+export function entryLanding(entrance: { x: number; y: number; width: number; out: [number, number] }) {
+  const across = entrance.width + 2;
+  const face = 0.16; // half a wall thickness: the landing starts at the wall's outer face
+  const d = ENTRY_DEPTH_FT;
+  const [ox, oy] = entrance.out;
+  if (ox !== 0) {
+    return { x: ox > 0 ? entrance.x + face : entrance.x - face - d, y: entrance.y - across / 2, w: d, h: across };
+  }
+  return { x: entrance.x - across / 2, y: oy > 0 ? entrance.y + face : entrance.y - face - d, w: across, h: d };
+}
