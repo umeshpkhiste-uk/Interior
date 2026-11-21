@@ -86,6 +86,17 @@ export const furnitureItemSchema = z.object({
 
 export type FurnitureItem = z.infer<typeof furnitureItemSchema>;
 
+/** A piece of wall removed on the plan, in the room's own frame (see FloorPlanRoom.wallGaps). */
+export const wallGapSchema = z
+  .object({
+    wall: z.enum(PLAN_WALLS),
+    from: z.number().min(0).max(500),
+    to: z.number().min(0).max(500),
+  })
+  .refine((g) => g.to > g.from, "A wall gap must have a length");
+
+export type WallGap = z.infer<typeof wallGapSchema>;
+
 export const floorPlanSaveSchema = z.object({
   passage: passageSchema,
   rooms: z
@@ -96,6 +107,7 @@ export const floorPlanSaveSchema = z.object({
         y: z.number().finite(),
         rotation: rotationSchema,
         openWalls: z.array(z.enum(PLAN_WALLS)).max(4),
+        wallGaps: z.array(wallGapSchema).max(60),
         furniture: z.array(furnitureItemSchema).max(60),
         /** Present only when the room's size was changed on the plan; in the room's own unit. */
         size: z.object({ length: z.number().positive(), width: z.number().positive() }).optional(),
@@ -111,6 +123,7 @@ export const floorPlanSaveSchema = z.object({
         wall: z.enum(PLAN_WALLS),
         offset: z.number().min(0).max(500),
         swing: z.number().int().min(0).max(3),
+        fullHeight: z.boolean(),
         widthFt: z.number().positive().max(30).optional(),
       })
     )
@@ -147,6 +160,7 @@ export const newOpeningSchema = z.object({
   heightFt: z.number().positive().max(30),
   wall: z.enum(PLAN_WALLS),
   offset: z.number().min(0).max(500),
+  fullHeight: z.boolean().optional(),
 });
 
 export type NewOpeningInput = z.infer<typeof newOpeningSchema>;

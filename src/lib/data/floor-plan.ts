@@ -6,6 +6,7 @@ import {
   PLAN_WALLS,
   furnitureItemSchema,
   passageSchema,
+  wallGapSchema,
   type FloorMaterial,
   type PlanPassage,
 } from "@/lib/validations/floor-plan";
@@ -79,6 +80,7 @@ export async function getFloorPlan(organizationId: string, projectId: string): P
         widthFt: Number(o.width ?? 0),
         heightFt: Number(o.height ?? 0),
         swing: (o.plan_swing ?? 0) as PlanOpening["swing"],
+        fullHeight: o.opening_type === "window" && Boolean(o.plan_full_height),
       };
       if (o.quantity === 1) {
         const wall = (PLAN_WALLS as readonly string[]).includes(o.plan_wall ?? "") ? (o.plan_wall as PlanOpening["wall"]) : null;
@@ -111,6 +113,7 @@ export async function getFloorPlan(organizationId: string, projectId: string): P
       floorMaterial: (FLOOR_MATERIALS as readonly string[]).includes(row.plan_floor_material ?? "")
         ? (row.plan_floor_material as FloorMaterial)
         : null,
+      wallGaps: wallGapSchema.array().safeParse(row.plan_wall_gaps).data ?? [],
       openWalls: (row.plan_open_walls ?? []).filter((w): w is (typeof PLAN_WALLS)[number] =>
         (PLAN_WALLS as readonly string[]).includes(w)
       ),

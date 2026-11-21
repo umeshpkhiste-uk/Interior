@@ -10,7 +10,7 @@ import {
   type KeyboardEvent,
 } from "react";
 import { useRouter } from "next/navigation";
-import { RotateCw, RotateCcw, Save, Undo2, Redo2, LayoutGrid, Trash2, DoorOpen, AppWindow } from "lucide-react";
+import { RotateCw, RotateCcw, Save, Undo2, Redo2, LayoutGrid, Trash2, DoorOpen, AppWindow, Scissors, PanelTop } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -46,9 +46,13 @@ import {
   toLocalDelta,
   toOwnWall,
   transferItem,
+  toWallGap,
+  wallGapLine,
+  wallPieceAt,
   wallSegments,
   WALLS,
   type FloorPlanRoom,
+  type WallSegment,
   type PlanRotation,
   type Wall,
 } from "@/lib/calculations/floor-plan";
@@ -177,6 +181,9 @@ export function FloorPlanEditor({
   const [passage, setPassage] = useState(initialPassage);
   const [frame, setFrame] = useState(() => frameFor(initialRooms, initialPassage));
   const [selection, setSelection] = useState<Selection>(null);
+  /** "Remove wall" tool: clicking a wall piece removes it, clicking a removed piece puts it back. */
+  const [wallTool, setWallTool] = useState(false);
+  const [hoverPiece, setHoverPiece] = useState<ReturnType<typeof wallPieceAt> | null>(null);
   const [drag, setDrag] = useState<Drag | null>(null);
   const [baseline, setBaseline] = useState<Snapshot>(() => ({ rooms: initialRooms, passage: initialPassage }));
   const [past, setPast] = useState<Snapshot[]>([]);
@@ -448,6 +455,34 @@ export function FloorPlanEditor({
     patchRoom(roomId, (r) => ({ openings: r.openings.map((o) => (o.id === openingId ? { ...o, ...patch } : o)) }));
   }
 
+  function toggleWallTool() {
+    setWallTool((on) => !on);
+    setHoverPiece(null);
+    setSelection(null);
+  }
+
+  /** Removes the piece of wall around the clicked point (between the nearest wall junctions). */
+  function removeWallPiece(e: ReactPointerEvent, seg: WallSegment) {
+    e.stopPropagation();
+    const room = rooms.find((r) => r.id === seg.roomId);
+    if (!room) return;
+    const p = toPlanCoords(e);
+    const gap = toWallGap(room, wallPieceAt(rooms, seg, p.x, p.y));
+    if (!gap) return;
+    setHoverPiece(null);
+    patchRoom(room.id, (r) => ({ wallGaps: [...r.wallGaps, gap] }));
+  }
+
+  function restoreWallPiece(e: ReactPointerEvent, roomId: string, index: number) {
+    e.stopPropagation();
+    patchRoom(roomId, (r) => ({ wallGaps: r.wallGaps.filter((_, k) => k !== index) }));
+  }
+
+  function setWindowFullHeight(fullHeight: boolean) {
+    if (!selectedRoom || !selectedOpening) return;
+    patchOpening(selectedRoom.id, selectedOpening.id, { fullHeight });
+  }
+
   /** Starts dragging a door/window along its wall; an auto-placed one is pinned where it is drawn. */
   function startOpeningDrag(e: ReactPointerEvent, room: FloorPlanRoom, placed: ResolvedOpening, mode: "opening" | "opening-resize" = "opening") {
     if (!placed.opening.movable) {
@@ -520,7 +555,7 @@ export function FloorPlanEditor({
     patchOpening(room.id, opening.id, { wall: next, offset: Math.max(0.1, snapToGrid((len - width) / 2)), widthFt: width });
   }
 
-  function addOpening(type: "door" | "window") {
+  function addOpening(type: "door" | "window", fullHeight = false) {
     if (!selectedRoom) return;
     const room = selectedRoom;
     const shared = sharedWallsByRoom.get(room.id) ?? new Set<Wall>();
@@ -540,15 +575,16 @@ export function FloorPlanEditor({
         roomId: room.id,
         type,
         widthFt: fitted,
-        heightFt: type === "door" ? 7 : 4,
+        heightFt: type === "door" ? 7 : fullHeight ? room.heightFt : 4,
         wall,
         offset: Math.max(0.1, (len - fitted) / 2),
+        fullHeight: type === "window" && fullHeight,
       });
       if (result.error) {
         toast.error(result.error);
         return;
       }
-      toast.success(`${type === "door" ? "Door" : "Window"} added to ${room.name} — drag it along the wall or pick another wall`);
+      toast.success(`${type === "door" ? "Door" : fullHeight ? "Full-height window" : "Window"} added to ${room.name} — drag it along the wall or pick another wall`);
       router.refresh();
     });
   }
@@ -625,6 +661,10 @@ export function FloorPlanEditor({
   }
 
   function handleKeyDown(e: KeyboardEvent) {
+    if (wallTool && e.key === "Escape") {
+      toggleWallTool();
+      return;
+    }
     if (!selectedRoom) return;
     if (selection?.kind === "opening") {
       if (e.key === "Escape") setSelection(null);
@@ -686,6 +726,7 @@ export function FloorPlanEditor({
             y: r.y - minY,
             rotation: r.rotation,
             openWalls: r.openWalls,
+            wallGaps: r.wallGaps,
             furniture: r.furniture,
             ...(resized ? { size: { length: r.length, width: r.width } } : {}),
           };
@@ -702,7 +743,8 @@ export function FloorPlanEditor({
         const was = before.get(o.id);
         if (!o.movable || !o.wall || o.offset == null || !was) return [];
         const widthChanged = was.widthFt !== o.widthFt;
-        if (was.wall === o.wall && was.offset === o.offset && was.swing === o.swing && !widthChanged) return [];
+        const unchanged = was.wall === o.wall && was.offset === o.offset && was.swing === o.swing && was.fullHeight === o.fullHeight;
+        if (unchanged && !widthChanged) return [];
         return [
           {
             id: o.rowId,
@@ -710,6 +752,7 @@ export function FloorPlanEditor({
             wall: o.wall,
             offset: o.offset,
             swing: o.swing,
+            fullHeight: o.fullHeight,
             ...(widthChanged ? { widthFt: o.widthFt } : {}),
           },
         ];
@@ -922,6 +965,16 @@ export function FloorPlanEditor({
         <Button size="sm" variant="ghost" onClick={resetToAuto} disabled={pending}>
           <LayoutGrid className="size-4" /> Auto-arrange
         </Button>
+        <Button
+          size="sm"
+          variant={wallTool ? "secondary" : "ghost"}
+          aria-pressed={wallTool}
+          onClick={toggleWallTool}
+          disabled={pending}
+          title="Click a piece of wall to remove it; click a removed (dashed) piece to put it back"
+        >
+          <Scissors className="size-4" /> {wallTool ? "Done removing walls" : "Remove wall"}
+        </Button>
         <select
           aria-label="Add area or furniture"
           className="h-7 rounded-md border bg-background px-2 text-[0.8rem]"
@@ -949,6 +1002,13 @@ export function FloorPlanEditor({
         </select>
         {dirty && !pending && <span className="text-xs font-medium text-amber-700">Unsaved changes</span>}
       </div>
+      {wallTool && (
+        <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-800">
+          Remove wall: click any piece of wall to take it out — it splits where other walls meet it, so you can remove just
+          the short bit between two rooms. Removed pieces show as red dashes; click one to put the wall back. Press Esc or
+          “Done removing walls” when finished, then Save layout.
+        </p>
+      )}
 
       <SelectionPanel
         key={`${selection?.roomId ?? "none"}-${selection?.kind === "item" ? selection.itemId : selection?.kind === "opening" ? selection.openingId : ""}-${resetCount}`}
@@ -967,6 +1027,7 @@ export function FloorPlanEditor({
         onOpeningSide={moveOpeningToSide}
         onOpeningWidth={setOpeningWidth}
         onRemoveOpening={removeSelectedOpening}
+        onWindowFullHeight={setWindowFullHeight}
         passage={passage}
         onPassageChange={changePassage}
       />
@@ -1065,6 +1126,7 @@ export function FloorPlanEditor({
                         offset={placed.offset}
                         width={placed.width}
                         swing={placed.opening.swing}
+                        fullHeight={placed.opening.fullHeight}
                         floor={floor}
                         selected={selected}
                       />
@@ -1081,6 +1143,56 @@ export function FloorPlanEditor({
               </g>
             );
           })}
+
+          {wallTool && (
+            <g>
+              {walls.map((seg, i) => (
+                <line
+                  key={`hit-${i}`}
+                  x1={seg.x1}
+                  y1={seg.y1}
+                  x2={seg.x2}
+                  y2={seg.y2}
+                  stroke="transparent"
+                  strokeWidth={0.8}
+                  className="cursor-pointer"
+                  style={{ touchAction: "none" }}
+                  onPointerMove={(e) => {
+                    const p = toPlanCoords(e);
+                    setHoverPiece(wallPieceAt(rooms, seg, p.x, p.y));
+                  }}
+                  onPointerLeave={() => setHoverPiece(null)}
+                  onPointerDown={(e) => removeWallPiece(e, seg)}
+                />
+              ))}
+              {hoverPiece && (
+                <line
+                  pointerEvents="none"
+                  {...(hoverPiece.horizontal
+                    ? { x1: hoverPiece.from, y1: hoverPiece.at, x2: hoverPiece.to, y2: hoverPiece.at }
+                    : { x1: hoverPiece.at, y1: hoverPiece.from, x2: hoverPiece.at, y2: hoverPiece.to })}
+                  stroke="#dc2626"
+                  strokeOpacity={0.75}
+                  strokeWidth={WALL_FT + 0.1}
+                />
+              )}
+              {rooms.flatMap((room) =>
+                room.wallGaps.map((gap, k) => {
+                  const l = wallGapLine(room, gap);
+                  const ends = l.horizontal
+                    ? { x1: l.from, y1: l.at, x2: l.to, y2: l.at }
+                    : { x1: l.at, y1: l.from, x2: l.at, y2: l.to };
+                  return (
+                    <g key={`gap-${room.id}-${k}`} className="cursor-pointer" onPointerDown={(e) => restoreWallPiece(e, room.id, k)}>
+                      <title>Click to put this wall back</title>
+                      <line {...ends} stroke="#dc2626" strokeWidth={0.07} strokeDasharray="0.3 0.2" />
+                      <line {...ends} stroke="transparent" strokeWidth={0.8} style={{ touchAction: "none" }} />
+                    </g>
+                  );
+                })
+              )}
+            </g>
+          )}
 
           {rooms.map((room) => {
             const fs = labelSize(room);
@@ -1250,6 +1362,7 @@ function SelectionPanel({
   onOpeningSide,
   onOpeningWidth,
   onRemoveOpening,
+  onWindowFullHeight,
   passage,
   onPassageChange,
 }: {
@@ -1264,10 +1377,11 @@ function SelectionPanel({
   onToggleOpenSide: (side: Wall) => void;
   onRemoveRoom: () => void;
   opening: PlanOpening | null;
-  onAddOpening: (type: "door" | "window") => void;
+  onAddOpening: (type: "door" | "window", fullHeight?: boolean) => void;
   onOpeningSide: (side: Wall) => void;
   onOpeningWidth: (widthFt: number) => void;
   onRemoveOpening: () => void;
+  onWindowFullHeight: (fullHeight: boolean) => void;
   passage: PlanPassage;
   onPassageChange: (side: keyof PlanPassage, feet: number) => void;
 }) {
@@ -1298,7 +1412,7 @@ function SelectionPanel({
   }
 
   if (opening) {
-    const label = opening.type === "door" ? "Door" : "Window";
+    const label = opening.type === "door" ? "Door" : opening.fullHeight ? "Full-height window" : "Window";
     return (
       <div className={`${PANEL} bg-muted/30`}>
         <div className="flex flex-wrap items-end gap-3">
@@ -1350,6 +1464,29 @@ function SelectionPanel({
                 </Button>
               );
             })}
+          </div>
+        )}
+        {opening.movable && opening.type === "window" && (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs text-muted-foreground">Window type:</span>
+            <Button
+              size="xs"
+              variant={opening.fullHeight ? "outline" : "secondary"}
+              aria-pressed={!opening.fullHeight}
+              onClick={() => onWindowFullHeight(false)}
+              disabled={disabled}
+            >
+              Standard (with sill)
+            </Button>
+            <Button
+              size="xs"
+              variant={opening.fullHeight ? "secondary" : "outline"}
+              aria-pressed={opening.fullHeight}
+              onClick={() => onWindowFullHeight(true)}
+              disabled={disabled}
+            >
+              Full height (floor to ceiling)
+            </Button>
           </div>
         )}
       </div>
@@ -1418,6 +1555,9 @@ function SelectionPanel({
           </Button>
           <Button size="sm" variant="outline" onClick={() => onAddOpening("window")} disabled={disabled}>
             <AppWindow className="size-4" /> Window
+          </Button>
+          <Button size="sm" variant="outline" onClick={() => onAddOpening("window", true)} disabled={disabled}>
+            <PanelTop className="size-4" /> Full-height window
           </Button>
           <Button size="sm" variant="outline" onClick={onRotate} disabled={disabled}>
             <RotateCw className="size-4" /> Rotate room

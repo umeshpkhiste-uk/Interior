@@ -40,6 +40,7 @@ import {
   FLOOR_MATERIAL_INFO,
   PAINT_COLORS,
   type FloorMaterial,
+  type FurnitureType,
   type PlanPassage,
   type RoomFinishInput,
 } from "@/lib/validations/floor-plan";
@@ -174,12 +175,29 @@ export function FloorPlan3DView({
       ),
     [building, passage, center]
   );
-  // Everything you'd bump into at eye level: walls, window sills and glass. Door lintels are overhead.
+  // Everything you'd bump into at eye level: walls, window sills and glass (door lintels are
+  // overhead), plus furniture. Furniture is shrunk a little so you can step up close to it.
   const colliders = useMemo<Rect[]>(() => {
     const { walls, glass } = buildWalls(rooms, false);
-    return [...walls, ...glass]
+    const structure = [...walls, ...glass]
       .filter((b) => b.y0 < EYE_FT && b.y1 > 0.5)
       .map((b) => ({ minX: b.x - center.x, maxX: b.x + b.w - center.x, minZ: b.z - center.z, maxZ: b.z + b.d - center.z }));
+    const furniture = rooms.flatMap((room) =>
+      room.furniture
+        .filter((item) => !WALK_OVER_FURNITURE.has(item.type))
+        .map((item) => {
+          const r = itemPlanRect(room, item);
+          const ix = Math.min(FURNITURE_INSET_FT, r.w / 4);
+          const iz = Math.min(FURNITURE_INSET_FT, r.h / 4);
+          return {
+            minX: r.x + ix - center.x,
+            maxX: r.x + r.w - ix - center.x,
+            minZ: r.y + iz - center.z,
+            maxZ: r.y + r.h - iz - center.z,
+          };
+        })
+    );
+    return [...structure, ...furniture];
   }, [rooms, center]);
   const indoorRooms = useMemo(() => {
     const inside = rooms.filter((r) => !isPassage(r));
@@ -194,7 +212,7 @@ export function FloorPlan3DView({
   );
 
   function eyeOf(room: FloorPlanRoom | null | undefined): Pose {
-    return room ? roomEyePose(room, center) : { pos: [0, EYE_FT, span / 3], target: [0, EYE_FT - 0.015, span / 3 - LOOK_FT] };
+    return room ? roomEyePose(room, center, colliders) : { pos: [0, EYE_FT, span / 3], target: [0, EYE_FT - 0.015, span / 3 - LOOK_FT] };
   }
 
   function currentPose(c: CameraControlsImpl): Pose {
@@ -298,7 +316,7 @@ export function FloorPlan3DView({
       await c.setLookAt(...iso.pos, ...iso.target, true);
       for (const room of indoorRooms) {
         if (!alive()) return;
-        const eye = roomEyePose(room, center);
+        const eye = roomEyePose(room, center, colliders);
         eyePose.current = eye;
         setWalkRoomId(room.id);
         configure(c, true);
@@ -722,18 +740,37 @@ function overviewPose(view: "iso" | "top" | "front", span: number): Pose {
   return { pos, target: [0, 0, 0] };
 }
 
-/** Standing just inside one end of the room at eye height, looking down its length. */
-function roomEyePose(room: FloorPlanRoom, center: { x: number; z: number }): Pose {
+/**
+ * Standing just inside one end of the room at eye height, looking down its length. If
+ * furniture is in the way there, the nearest clear spot in the room is used instead.
+ */
+function roomEyePose(room: FloorPlanRoom, center: { x: number; z: number }, colliders: Rect[]): Pose {
   const { w, h } = footprint(room);
   const eye = Math.max(2, Math.min(EYE_FT, room.heightFt - 1));
-  const cx = room.x + w / 2 - center.x;
-  const cz = room.y + h / 2 - center.z;
-  if (w >= h) {
-    const x = cx - w / 2 + Math.min(1.5, w * 0.15);
-    return { pos: [x, eye, cz], target: [x + LOOK_FT, eye - 0.015, cz] };
+  const x0 = room.x - center.x;
+  const z0 = room.y - center.z;
+  const along = w >= h;
+  const start = along ? { x: x0 + Math.min(1.5, w * 0.15), z: z0 + h / 2 } : { x: x0 + w / 2, z: z0 + h - Math.min(1.5, h * 0.15) };
+  // A good spot has a little elbow room and about 2 ft of clear floor in the direction you face.
+  const [fx, fz] = along ? [1, 0] : [0, -1];
+  const clear = (x: number, z: number) =>
+    [0, 0.5, 1, 1.5, 2].every((k) => penetration(x + fx * k, z + fz * k, colliders) <= -0.2);
+  let spot = start;
+  if (!clear(start.x, start.z)) {
+    let best = Infinity;
+    for (let gx = x0 + 0.8; gx <= x0 + w - 0.8; gx += 0.5) {
+      for (let gz = z0 + 0.8; gz <= z0 + h - 0.8; gz += 0.5) {
+        const d = Math.hypot(gx - start.x, gz - start.z);
+        if (d < best && clear(gx, gz)) {
+          best = d;
+          spot = { x: gx, z: gz };
+        }
+      }
+    }
   }
-  const z = cz + h / 2 - Math.min(1.5, h * 0.15);
-  return { pos: [cx, eye, z], target: [cx, eye - 0.015, z - LOOK_FT] };
+  return along
+    ? { pos: [spot.x, eye, spot.z], target: [spot.x + LOOK_FT, eye - 0.015, spot.z] }
+    : { pos: [spot.x, eye, spot.z], target: [spot.x, eye - 0.015, spot.z - LOOK_FT] };
 }
 
 function largestRoom(rooms: FloorPlanRoom[]): FloorPlanRoom | undefined {
@@ -782,6 +819,10 @@ function applyCameraMode(c: CameraControlsImpl, eye: boolean, area: THREE.Box3 |
 }
 
 type Rect = { minX: number; maxX: number; minZ: number; maxZ: number };
+/** Flat on the floor (or a walk-in area), so you can walk over/into them. */
+const WALK_OVER_FURNITURE = new Set<FurnitureType>(["rug", "shower"]);
+/** Furniture outlines are pulled in by this much, since the body radius is sized for walls. */
+const FURNITURE_INSET_FT = 0.3;
 /** How close the walker's eye may get to a wall, in feet. */
 const BODY_FT = 0.7;
 const SUBSTEP_FT = 0.2;

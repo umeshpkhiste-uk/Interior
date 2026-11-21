@@ -168,6 +168,7 @@ export function OpeningShape({
   offset: o,
   width,
   swing,
+  fullHeight = false,
   floor,
   selected,
 }: {
@@ -175,10 +176,26 @@ export function OpeningShape({
   offset: number;
   width: number;
   swing: 0 | 1 | 2 | 3;
+  /** Floor-to-ceiling glazing: drawn as a framed glass panel with mullions instead of a sill window. */
+  fullHeight?: boolean;
   floor: string;
   selected: boolean;
 }) {
   const half = WALL_FT / 2;
+  if (type === "window" && fullHeight) {
+    const panes = Math.max(1, Math.round(width / 2.5));
+    return (
+      <>
+        <rect x={o} y={-half} width={width} height={WALL_FT} fill="#cfe3ef" stroke="#4f6b7d" strokeWidth={0.035} />
+        <line x1={o} y1={0} x2={o + width} y2={0} stroke="#4f6b7d" strokeWidth={0.04} />
+        {Array.from({ length: panes - 1 }, (_, k) => {
+          const x = o + ((k + 1) * width) / panes;
+          return <line key={k} x1={x} y1={-half} x2={x} y2={half} stroke="#4f6b7d" strokeWidth={0.035} />;
+        })}
+        {selected && <SelectionBox x={o} y={-half} w={width} h={WALL_FT} />}
+      </>
+    );
+  }
   if (type === "window") {
     return (
       <>

@@ -68,6 +68,7 @@ export async function saveFloorPlanLayout(projectId: string, input: FloorPlanSav
           plan_y: round2(room.y),
           plan_rotation: room.rotation,
           plan_open_walls: room.openWalls,
+          plan_wall_gaps: room.wallGaps.map((g) => ({ wall: g.wall, from: round2(g.from), to: round2(g.to) })),
           plan_furniture: room.furniture.map((f) => ({ ...f, x: round2(f.x), y: round2(f.y), w: round2(f.w), h: round2(f.h) })),
         })
         .eq("id", room.id)
@@ -140,7 +141,7 @@ async function saveOpeningPlacements(
     if (!projectRoomIds.has(o.roomId)) return "Opening does not belong to this project";
     const { data: row, error } = await supabase
       .from("room_openings")
-      .update({ plan_wall: o.wall, plan_offset: round2(o.offset), plan_swing: o.swing })
+      .update({ plan_wall: o.wall, plan_offset: round2(o.offset), plan_swing: o.swing, plan_full_height: o.fullHeight })
       .eq("id", o.id)
       .eq("room_id", o.roomId)
       .eq("organization_id", organizationId)
@@ -189,7 +190,7 @@ export async function addFloorPlanOpening(projectId: string, input: NewOpeningIn
 
   const { error } = await supabase
     .from("room_openings")
-    .update({ plan_wall: o.wall, plan_offset: round2(o.offset) })
+    .update({ plan_wall: o.wall, plan_offset: round2(o.offset), plan_full_height: o.type === "window" && Boolean(o.fullHeight) })
     .eq("id", created.data.id)
     .eq("organization_id", ctx.organizationId);
   if (error) return { error: error.message };

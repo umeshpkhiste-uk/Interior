@@ -5,6 +5,7 @@ import {
   type FloorMaterial,
   type FurnitureItem,
   type FurnitureType,
+  type WallGap,
 } from "@/lib/validations/floor-plan";
 
 export type PlanRotation = 0 | 90 | 180 | 270;
@@ -31,6 +32,11 @@ export type FloorPlanRoom = {
   furniture: FurnitureItem[];
   /** Own-frame sides drawn without a wall. */
   openWalls: Wall[];
+  /**
+   * Pieces of wall removed on the plan, on own-frame walls: from/to are feet along the
+   * room's local x (top/bottom walls) or local y (left/right walls).
+   */
+  wallGaps: WallGap[];
   /** Chosen wall paint (hex) and floor material; null = default for the room type. */
   wallColor: string | null;
   floorMaterial: FloorMaterial | null;
@@ -48,6 +54,8 @@ export type PlanOpening = {
   offset: number | null;
   /** Door swing: 0 hinge-start/inward, 1 hinge-end/inward, 2 hinge-end/outward, 3 hinge-start/outward. */
   swing: DoorSwing;
+  /** Windows only: runs from the floor to the ceiling. */
+  fullHeight: boolean;
   /** Rows with quantity > 1 are drawn but can only be edited on Room Measurements. */
   movable: boolean;
 };
@@ -144,8 +152,11 @@ export function openingSpans(rooms: FloorPlanRoom[]): OpeningSpan[] {
       const b = wallFramePoint(room, wall, offset + width);
       const horizontal = Math.abs(a.y - b.y) < 1e-6;
       const maxTop = room.heightFt - 0.5;
-      const sill = opening.type === "door" ? 0 : Math.min(3, maxTop - 1);
-      const top = Math.min(sill + (opening.heightFt > 0 ? opening.heightFt : opening.type === "door" ? 7 : 4), maxTop);
+      const full = opening.type === "window" && opening.fullHeight;
+      const sill = opening.type === "door" || full ? 0 : Math.min(3, maxTop - 1);
+      const top = full
+        ? room.heightFt
+        : Math.min(sill + (opening.heightFt > 0 ? opening.heightFt : opening.type === "door" ? 7 : 4), maxTop);
       return {
         id: opening.id,
         type: opening.type,
@@ -476,10 +487,70 @@ function subtract(spans: [number, number][], cut: [number, number]): [number, nu
   });
 }
 
+type PlanLine = { horizontal: boolean; at: number; from: number; to: number };
+
+/** A removed wall piece, in plan coordinates. */
+export function wallGapLine(room: FloorPlanRoom, gap: WallGap): PlanLine {
+  const L = room.lengthFt;
+  const W = room.widthFt;
+  const [a, b] =
+    gap.wall === "top"
+      ? [localToPlan(room, gap.from, 0), localToPlan(room, gap.to, 0)]
+      : gap.wall === "bottom"
+        ? [localToPlan(room, gap.from, W), localToPlan(room, gap.to, W)]
+        : gap.wall === "left"
+          ? [localToPlan(room, 0, gap.from), localToPlan(room, 0, gap.to)]
+          : [localToPlan(room, L, gap.from), localToPlan(room, L, gap.to)];
+  const horizontal = Math.abs(a.y - b.y) < 1e-6;
+  return horizontal
+    ? { horizontal, at: a.y, from: Math.min(a.x, b.x), to: Math.max(a.x, b.x) }
+    : { horizontal, at: a.x, from: Math.min(a.y, b.y), to: Math.max(a.y, b.y) };
+}
+
+/**
+ * The piece of a drawn wall around a clicked point: it runs between the nearest places
+ * where another room's wall meets this one (or the segment's own ends).
+ */
+export function wallPieceAt(rooms: FloorPlanRoom[], seg: WallSegment, px: number, py: number): PlanLine {
+  const horizontal = seg.y1 === seg.y2;
+  const at = horizontal ? seg.y1 : seg.x1;
+  const from = horizontal ? Math.min(seg.x1, seg.x2) : Math.min(seg.y1, seg.y2);
+  const to = horizontal ? Math.max(seg.x1, seg.x2) : Math.max(seg.y1, seg.y2);
+  const p = horizontal ? px : py;
+  let lo = from;
+  let hi = to;
+  for (const room of rooms) {
+    if (isPassage(room)) continue;
+    const { w, h } = footprint(room);
+    const [near, far, edges] = horizontal ? [room.y, room.y + h, [room.x, room.x + w]] : [room.x, room.x + w, [room.y, room.y + h]];
+    if (at < near - WALL_TOLERANCE_FT || at > far + WALL_TOLERANCE_FT) continue;
+    for (const e of edges) {
+      if (e > lo + 0.05 && e <= p) lo = e;
+      if (e < hi - 0.05 && e >= p) hi = e;
+    }
+  }
+  return { horizontal, at, from: lo, to: hi };
+}
+
+/** A plan-coordinate wall piece → a gap on one of the room's own walls, or null if it isn't on one. */
+export function toWallGap(room: FloorPlanRoom, piece: PlanLine): WallGap | null {
+  const a = planToLocal(room, piece.horizontal ? piece.from : piece.at, piece.horizontal ? piece.at : piece.from);
+  const b = planToLocal(room, piece.horizontal ? piece.to : piece.at, piece.horizontal ? piece.at : piece.to);
+  const near = (u: number, v: number) => Math.abs(u - v) < 0.05;
+  const round = (n: number) => Math.round(n * 100) / 100;
+  const span = (u: number, v: number) => ({ from: round(Math.max(0, Math.min(u, v))), to: round(Math.max(u, v)) });
+  if (near(a.y, 0) && near(b.y, 0)) return { wall: "top", ...span(a.x, b.x) };
+  if (near(a.y, room.widthFt) && near(b.y, room.widthFt)) return { wall: "bottom", ...span(a.x, b.x) };
+  if (near(a.x, 0) && near(b.x, 0)) return { wall: "left", ...span(a.y, b.y) };
+  if (near(a.x, room.lengthFt) && near(b.x, room.lengthFt)) return { wall: "right", ...span(a.y, b.y) };
+  return null;
+}
+
 /**
  * The walls actually drawn on the plan. A wall is left out where its side is marked
  * open, where it runs through another room (rooms dragged over each other merge into
- * one space), and where it lines up with a neighbouring room's open side.
+ * one space), where it lines up with a neighbouring room's open side, and where a
+ * piece of it (or of a wall lying on it) was removed.
  */
 export function wallSegments(rooms: FloorPlanRoom[]): WallSegment[] {
   const rects = rooms.map((room) => ({
@@ -487,6 +558,7 @@ export function wallSegments(rooms: FloorPlanRoom[]): WallSegment[] {
     rect: { x: room.x, y: room.y, ...footprint(room) },
     openSides: new Set(room.openWalls.map((w) => toPlanSide(w, room.rotation))),
   }));
+  const gaps = rooms.flatMap((room) => (room.wallGaps ?? []).map((g) => wallGapLine(room, g)));
   const segments: WallSegment[] = [];
 
   for (const a of rects) {
@@ -506,6 +578,9 @@ export function wallSegments(rooms: FloorPlanRoom[]): WallSegment[] {
           return other.horizontal === line.horizontal && Math.abs(other.at - line.at) < WALL_TOLERANCE_FT;
         });
         if (throughInterior || onOpenNeighbourSide) spans = subtract(spans, span);
+      }
+      for (const g of gaps) {
+        if (g.horizontal === line.horizontal && Math.abs(g.at - line.at) < WALL_TOLERANCE_FT) spans = subtract(spans, [g.from, g.to]);
       }
 
       for (const [from, to] of spans) {

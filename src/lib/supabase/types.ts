@@ -2552,6 +2552,7 @@ export type Database = {
           plan_open_walls: string[]
           plan_rotation: number
           plan_wall_color: string | null
+          plan_wall_gaps: Json
           plan_x: number | null
           plan_y: number | null
           project_id: string
@@ -2579,6 +2580,7 @@ export type Database = {
           plan_open_walls?: string[]
           plan_rotation?: number
           plan_wall_color?: string | null
+          plan_wall_gaps?: Json
           plan_x?: number | null
           plan_y?: number | null
           project_id: string
@@ -2606,6 +2608,7 @@ export type Database = {
           plan_open_walls?: string[]
           plan_rotation?: number
           plan_wall_color?: string | null
+          plan_wall_gaps?: Json
           plan_x?: number | null
           plan_y?: number | null
           project_id?: string
@@ -3248,6 +3251,7 @@ export type Database = {
           is_custom: boolean
           opening_type: Database["public"]["Enums"]["opening_type"]
           organization_id: string
+          plan_full_height: boolean
           plan_offset: number | null
           plan_swing: number
           plan_wall: string | null
@@ -3263,6 +3267,7 @@ export type Database = {
           is_custom?: boolean
           opening_type?: Database["public"]["Enums"]["opening_type"]
           organization_id: string
+          plan_full_height?: boolean
           plan_offset?: number | null
           plan_swing?: number
           plan_wall?: string | null
@@ -3278,6 +3283,7 @@ export type Database = {
           is_custom?: boolean
           opening_type?: Database["public"]["Enums"]["opening_type"]
           organization_id?: string
+          plan_full_height?: boolean
           plan_offset?: number | null
           plan_swing?: number
           plan_wall?: string | null
