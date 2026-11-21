@@ -51,8 +51,6 @@ import {
   wallGapLine,
   wallPieceAt,
   wallSegments,
-  outerWallSegments,
-  wallsOnOuterWall,
   entranceOf,
   WALLS,
   type FloorPlanRoom,
@@ -219,8 +217,6 @@ export function FloorPlanEditor({
   });
 
   const walls = useMemo(() => wallSegments(rooms), [rooms]);
-  /** The flat's outer wall, drawn all the way round (it closes open sides on the outside). */
-  const outerSegments = useMemo(() => outerWallSegments(rooms), [rooms]);
   const entrance = useMemo(() => entranceOf(rooms), [rooms]);
   const sharedWallsByRoom = useMemo(() => new Map(rooms.map((r) => [r.id, sharedWalls(r, rooms)])), [rooms]);
   /** Doors/windows on removed wall pieces: hidden now, deleted on save (putting the wall back restores them). */
@@ -590,8 +586,7 @@ export function FloorPlanEditor({
       return;
     }
     const start = WALLS.indexOf(wall);
-    const outside = wallsOnOuterWall(room, rooms);
-    const next = [1, 2, 3].map((k) => WALLS[(start + k) % 4]).find((w) => !room.openWalls.includes(w) || outside.has(w));
+    const next = [1, 2, 3].map((k) => WALLS[(start + k) % 4]).find((w) => !room.openWalls.includes(w));
     if (!next) return;
     const len = wallLength(room, next);
     const width = Math.min(opening.widthFt || 4, len - 0.2);
@@ -602,9 +597,7 @@ export function FloorPlanEditor({
     if (!selectedRoom) return;
     const room = selectedRoom;
     const shared = sharedWallsByRoom.get(room.id) ?? new Set<Wall>();
-    // Sides on the flat's outer wall always have a wall, even if marked open.
-    const outside = wallsOnOuterWall(room, rooms);
-    const walled = WALLS.filter((w) => !room.openWalls.includes(w) || outside.has(w));
+    const walled = WALLS.filter((w) => !room.openWalls.includes(w));
     if (walled.length === 0) {
       toast.error("This room has no walls — close a side first");
       return;
@@ -1175,9 +1168,6 @@ export function FloorPlanEditor({
           <g pointerEvents="none" stroke={WALL_COLOR} strokeWidth={WALL_FT} strokeLinecap="square">
             {walls.map((seg, i) => (
               <line key={i} x1={seg.x1} y1={seg.y1} x2={seg.x2} y2={seg.y2} />
-            ))}
-            {outerSegments.map((seg, i) => (
-              <line key={`outer-${i}`} x1={seg.x1} y1={seg.y1} x2={seg.x2} y2={seg.y2} />
             ))}
           </g>
 

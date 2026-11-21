@@ -22,6 +22,7 @@ import {
   Scan,
   Square,
   SquareDashed,
+  Trash2,
   Undo2,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -33,8 +34,7 @@ import {
   itemPlanRect,
   openingSpans,
   entranceOf,
-  outerWalls,
-  OUTER_WALL_HEIGHT_FT,
+  DESIGN_WALL_HEIGHT_FT,
   toPlanSide,
   wallGapLine,
   wallSegments,
@@ -47,6 +47,7 @@ import {
   FLOOR_MATERIALS,
   FLOOR_MATERIAL_INFO,
   PAINT_COLORS,
+  FURNITURE_LABELS,
   WALL_DESIGNS,
   WALL_DESIGN_LABELS,
   type FloorMaterial,
@@ -105,9 +106,11 @@ function boundsOf(rooms: FloorPlanRoom[]): Bounds {
   return { minX, minY, maxX, maxY };
 }
 
-type Finish = Pick<FloorPlanRoom, "wallColor" | "floorMaterial" | "wallDesigns">;
+type Finish = Pick<FloorPlanRoom, "wallColor" | "floorMaterial" | "wallDesigns" | "furniture">;
 /** A wall picked in the model: one of a room's own walls. */
 type WallPick = { roomId: string; wall: Wall };
+/** Something picked in the model that can be deleted: a furniture item or a wall design. */
+type ThingPick = { kind: "item"; roomId: string; itemId: string } | { kind: "design"; roomId: string; wall: Wall };
 
 export function FloorPlan3DView({
   projectId,
@@ -122,7 +125,10 @@ export function FloorPlan3DView({
 }) {
   const [finishes, setFinishes] = useState<Record<string, Finish>>(() =>
     Object.fromEntries(
-      savedRooms.map((r) => [r.id, { wallColor: r.wallColor, floorMaterial: r.floorMaterial, wallDesigns: r.wallDesigns ?? [] }])
+      savedRooms.map((r) => [
+        r.id,
+        { wallColor: r.wallColor, floorMaterial: r.floorMaterial, wallDesigns: r.wallDesigns ?? [], furniture: r.furniture },
+      ])
     )
   );
   // The floor is one finish for the whole house.
@@ -133,13 +139,21 @@ export function FloorPlan3DView({
   );
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedWall, setSelectedWall] = useState<WallPick | null>(null);
+  const [selectedThing, setSelectedThing] = useState<ThingPick | null>(null);
   const selectRoom = useCallback((id: string | null) => {
     setSelectedId(id);
     setSelectedWall(null);
+    setSelectedThing(null);
   }, []);
   const selectWall = useCallback((pick: WallPick) => {
     setSelectedId(pick.roomId);
     setSelectedWall(pick);
+    setSelectedThing(null);
+  }, []);
+  const selectThing = useCallback((pick: ThingPick) => {
+    setSelectedId(pick.roomId);
+    setSelectedWall(pick.kind === "design" ? { roomId: pick.roomId, wall: pick.wall } : null);
+    setSelectedThing(pick);
   }, []);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
   const pending = useRef(new Map<string, RoomFinishInput>());
@@ -197,6 +211,7 @@ export function FloorPlan3DView({
       wallColor: next.wallColor,
       floorMaterial: next.floorMaterial,
       wallDesigns: next.wallDesigns ?? [],
+      furniture: next.furniture,
     });
     setSaveState("saving");
     if (timer.current) clearTimeout(timer.current);
@@ -208,6 +223,20 @@ export function FloorPlan3DView({
     const current = finishes[pick.roomId]?.wallDesigns ?? [];
     const others = current.filter((d) => d.wall !== pick.wall);
     updateFinish(pick.roomId, { wallDesigns: design === undefined ? others : [...others, { wall: pick.wall, design }] });
+  }
+
+  /** Removes the picked furniture item or wall design (undo brings it back). */
+  function deleteSelected() {
+    const pick = selectedThing;
+    if (!pick) return;
+    if (pick.kind === "item") {
+      const furniture = finishes[pick.roomId]?.furniture ?? [];
+      updateFinish(pick.roomId, { furniture: furniture.filter((f) => f.id !== pick.itemId) });
+    } else {
+      setWallDesign({ roomId: pick.roomId, wall: pick.wall }, undefined);
+    }
+    setSelectedThing(null);
+    setSelectedWall(null);
   }
 
   function updateHouseFloor(floor: FloorMaterial | null) {
@@ -254,9 +283,14 @@ export function FloorPlan3DView({
   // Ctrl/Cmd+Z undo, Ctrl/Cmd+Shift+Z or Ctrl+Y redo, except while typing in a field.
   useEffect(() => {
     const onKey = (e: globalThis.KeyboardEvent) => {
-      if (!(e.ctrlKey || e.metaKey)) return;
       const target = e.target as HTMLElement | null;
       if (target?.closest("input, textarea, select, [contenteditable=true]")) return;
+      if ((e.key === "Delete" || e.key === "Backspace") && selectedThing) {
+        e.preventDefault();
+        deleteSelected();
+        return;
+      }
+      if (!(e.ctrlKey || e.metaKey)) return;
       const key = e.key.toLowerCase();
       if (key === "z" && !e.shiftKey) {
         e.preventDefault();
@@ -591,8 +625,10 @@ export function FloorPlan3DView({
                 labels={labels}
                 selectedId={selectedId}
                 selectedWall={selectedWall}
+                selectedThing={selectedThing}
                 onSelect={selectRoom}
                 onSelectWall={selectWall}
+                onSelectThing={selectThing}
                 onWalkTo={walkTo}
               />
             </group>
@@ -655,6 +691,8 @@ export function FloorPlan3DView({
           rooms={rooms}
           selected={selectedRoom}
           selectedWall={selectedWall}
+          selectedThing={selectedThing}
+          onDeleteThing={deleteSelected}
           onSelect={selectRoom}
           onChange={updateFinish}
           onWallDesign={setWallDesign}
@@ -740,6 +778,8 @@ function FinishesPanel({
   onSelect,
   onChange,
   selectedWall,
+  selectedThing,
+  onDeleteThing,
   onWallDesign,
   houseFloor,
   onFloorChange,
@@ -750,6 +790,8 @@ function FinishesPanel({
   onSelect: (id: string | null) => void;
   onChange: (roomId: string, patch: Partial<Finish>) => void;
   selectedWall: WallPick | null;
+  selectedThing: ThingPick | null;
+  onDeleteThing: () => void;
   onWallDesign: (pick: WallPick, design: WallDesignType | null | undefined) => void;
   houseFloor: FloorMaterial | null;
   onFloorChange: (floor: FloorMaterial | null) => void;
@@ -764,6 +806,16 @@ function FinishesPanel({
     const side = toPlanSide(wall, room.rotation);
     return `${side[0].toUpperCase()}${side.slice(1)} wall`;
   };
+  const thingRoom = selectedThing ? rooms.find((r) => r.id === selectedThing.roomId) : undefined;
+  const thingLabel = (() => {
+    if (!selectedThing || !thingRoom) return null;
+    if (selectedThing.kind === "item") {
+      const item = thingRoom.furniture.find((f) => f.id === selectedThing.itemId);
+      return item ? `${FURNITURE_LABELS[item.type]} in ${thingRoom.name}` : null;
+    }
+    const design = thingRoom.wallDesigns?.find((d) => d.wall === selectedThing.wall)?.design;
+    return design ? `${WALL_DESIGN_LABELS[design]} on ${thingRoom.name} · ${sideName(thingRoom, selectedThing.wall)}` : null;
+  })();
   const currentWall = selected?.wallColor ?? DEFAULT_WALL_COLOR;
   return (
     <div className="flex flex-col gap-4 rounded-lg border p-3">
@@ -779,6 +831,18 @@ function FinishesPanel({
           ) : null}
         </span>
       </div>
+      {thingLabel && (
+        <div className="flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 px-2 py-1.5">
+          <p className="min-w-0 flex-1 text-xs">
+            <span className="block text-muted-foreground">Selected</span>
+            <span className="font-medium">{thingLabel}</span>
+          </p>
+          <Button size="xs" variant="outline" onClick={onDeleteThing} title="Delete (Del)">
+            <Trash2 className="size-3.5" /> Delete
+          </Button>
+        </div>
+      )}
+
       <label className="flex flex-col gap-1 text-xs text-muted-foreground">
         Room
         <select
@@ -1199,6 +1263,16 @@ function CameraRig({
   return null;
 }
 
+/** An orange outline on the floor round a picked item (w × d, centred). */
+function SelectionOutline({ w, d }: { w: number; d: number }) {
+  const geometry = useMemo(() => new THREE.EdgesGeometry(new THREE.BoxGeometry(w + 0.3, 0.06, d + 0.3)), [w, d]);
+  return (
+    <lineSegments geometry={geometry} position={[0, 0.04, 0]}>
+      <lineBasicMaterial color="#f59e0b" linewidth={2} />
+    </lineSegments>
+  );
+}
+
 /** An amber sign board with white lettering, as a texture. */
 function makeSignTexture(text: string): THREE.CanvasTexture {
   const canvas = document.createElement("canvas");
@@ -1443,13 +1517,21 @@ function wallOnLine(room: FloorPlanRoom, lineKey: string): Wall | null {
  * between sill and head that gets a glass pane. Each wall is built as two half-thickness
  * skins so each face carries the paint of the room on that side.
  */
-function buildWalls(rooms: FloorPlanRoom[], cutaway: boolean): { walls: WallBox[]; glass: GlassPane[] } {
-  // Design walls always stand full height, even in the cut-away view.
-  const designLines = rooms.flatMap((room) => (room.wallDesigns ?? []).map((d) => roomWallLine(room, d.wall)));
+function buildWalls(
+  rooms: FloorPlanRoom[],
+  cutaway: boolean,
+  raised: WallPick | null = null
+): { walls: WallBox[]; glass: GlassPane[] } {
+  // Design walls, and the wall just picked, stand 12 ft tall even in the cut-away view.
+  const raisedRoom = raised ? rooms.find((r) => r.id === raised.roomId) : undefined;
+  const designLines = [
+    ...rooms.flatMap((room) => (room.wallDesigns ?? []).map((d) => roomWallLine(room, d.wall))),
+    ...(raised && raisedRoom ? [roomWallLine(raisedRoom, raised.wall)] : []),
+  ];
   const fullAt = (horizontal: boolean, at: number, along: number) =>
     designLines.some((l) => l.horizontal === horizontal && Math.abs(l.at - at) < 0.2 && along > l.from - 0.01 && along < l.to + 0.01);
   const heightOf = new Map(rooms.map((r) => [r.id, r.heightFt]));
-  type Span = { from: number; to: number; height: number; outer: boolean };
+  type Span = { from: number; to: number; height: number };
   const lines = new Map<string, { horizontal: boolean; at: number; spans: Span[] }>();
   const addSpan = (horizontal: boolean, at: number, span: Span) => {
     const key = lineKeyOf(horizontal, at);
@@ -1457,24 +1539,14 @@ function buildWalls(rooms: FloorPlanRoom[], cutaway: boolean): { walls: WallBox[
     line.spans.push(span);
     lines.set(key, line);
   };
-  // The flat's outer wall goes all the way round (closing open sides) at its own fixed height;
-  // room walls lying on it are replaced by it.
-  const outer = outerWalls(rooms);
   for (const seg of wallSegments(rooms)) {
     const horizontal = seg.y1 === seg.y2;
-    const at = horizontal ? seg.y1 : seg.x1;
-    let pieces: [number, number][] = [
-      horizontal ? [Math.min(seg.x1, seg.x2), Math.max(seg.x1, seg.x2)] : [Math.min(seg.y1, seg.y2), Math.max(seg.y1, seg.y2)],
-    ];
-    for (const o of outer) {
-      if (o.horizontal !== horizontal || Math.abs(o.at - at) > 0.2) continue;
-      pieces = pieces.flatMap(([a, b]): [number, number][] =>
-        o.to <= a || o.from >= b ? [[a, b]] : ([[a, o.from], [o.to, b]] as [number, number][]).filter(([p, q]) => q - p > 0.05)
-      );
-    }
-    for (const [from, to] of pieces) addSpan(horizontal, at, { from, to, height: heightOf.get(seg.roomId) ?? 10, outer: false });
+    addSpan(horizontal, horizontal ? seg.y1 : seg.x1, {
+      from: horizontal ? Math.min(seg.x1, seg.x2) : Math.min(seg.y1, seg.y2),
+      to: horizontal ? Math.max(seg.x1, seg.x2) : Math.max(seg.y1, seg.y2),
+      height: heightOf.get(seg.roomId) ?? 10,
+    });
   }
-  for (const o of outer) addSpan(o.horizontal, o.at, { from: o.from, to: o.to, height: OUTER_WALL_HEIGHT_FT, outer: true });
 
   const openings = openingSpans(rooms);
   const solid = rooms.filter((r) => !isPassage(r));
@@ -1490,7 +1562,7 @@ function buildWalls(rooms: FloorPlanRoom[], cutaway: boolean): { walls: WallBox[
     const merged: Span[] = [];
     for (const s of [...line.spans].sort((a, b) => a.from - b.from)) {
       const last = merged.at(-1);
-      if (last && last.outer === s.outer && s.from <= last.to + 0.01) {
+      if (last && s.from <= last.to + 0.01) {
         last.to = Math.max(last.to, s.to);
         last.height = Math.max(last.height, s.height);
       } else merged.push({ ...s });
@@ -1499,8 +1571,13 @@ function buildWalls(rooms: FloorPlanRoom[], cutaway: boolean): { walls: WallBox[
 
     const lineKey = lineKeyOf(line.horizontal, line.at);
     for (const run of merged) {
+      // Design walls (and the wall being picked) rise to 12 ft; the rest keep their height (or the cut-away).
       const topAt = (along: number) =>
-        cutaway && !run.outer && !fullAt(line.horizontal, line.at, along) ? Math.min(run.height, CUTAWAY_FT) : run.height;
+        fullAt(line.horizontal, line.at, along)
+          ? Math.max(run.height, DESIGN_WALL_HEIGHT_FT)
+          : cutaway
+            ? Math.min(run.height, CUTAWAY_FT)
+            : run.height;
       const addGlass = (from: number, to: number, y0: number, y1: number) => {
         const yTop = Math.min(y1, topAt((from + to) / 2));
         if (to - from < 0.01 || yTop - y0 < 0.01) return;
@@ -1522,7 +1599,8 @@ function buildWalls(rooms: FloorPlanRoom[], cutaway: boolean): { walls: WallBox[
           const a = extendEnds && s0 === run.from ? s0 - T / 2 : s0;
           const b = extendEnds && s1 === run.to ? s1 + T / 2 : s1;
           const mid = (s0 + s1) / 2;
-          const yTop = Math.min(y1, topAt(mid));
+          // Pieces reaching the room's ceiling follow the wall's top (which may be raised).
+          const yTop = Math.min(y1 >= run.height ? Number.POSITIVE_INFINITY : y1, topAt(mid));
           if (yTop - y0 < 0.01) continue;
           const [before, after] = line.horizontal
             ? [roomAt(mid, line.at - T), roomAt(mid, line.at + T)]
@@ -1565,8 +1643,10 @@ const Scene = memo(function Scene({
   labels,
   selectedId,
   selectedWall,
+  selectedThing,
   onSelect,
   onSelectWall,
+  onSelectThing,
   onWalkTo,
 }: {
   rooms: FloorPlanRoom[];
@@ -1577,8 +1657,10 @@ const Scene = memo(function Scene({
   labels: boolean;
   selectedId: string | null;
   selectedWall: WallPick | null;
+  selectedThing: ThingPick | null;
   onSelect: (id: string) => void;
   onSelectWall: (pick: WallPick) => void;
+  onSelectThing: (pick: ThingPick) => void;
   onWalkTo: (point: THREE.Vector3, roomId: string | null) => void;
 }) {
   // A click selects a room, but not the end of an orbit drag.
@@ -1629,6 +1711,11 @@ const Scene = memo(function Scene({
         return lineKeyOf(l.horizontal, l.at);
       })()
     : null;
+  // Clicking furniture or a wall design picks it (so it can be deleted), not the end of a drag.
+  const pickThing = (thing: ThingPick) => (e: ThreeEvent<MouseEvent>) => {
+    e.stopPropagation();
+    if (e.delta <= 4) onSelectThing(thing);
+  };
   const standAt = (roomId: string | null) => (e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation();
     onWalkTo(e.point.clone(), roomId);
@@ -1640,7 +1727,7 @@ const Scene = memo(function Scene({
       ) as Record<FloorKind, THREE.CanvasTexture>,
     []
   );
-  const { walls, glass } = useMemo(() => buildWalls(rooms, cutaway), [rooms, cutaway]);
+  const { walls, glass } = useMemo(() => buildWalls(rooms, cutaway, selectedWall), [rooms, cutaway, selectedWall]);
   const entrance = useMemo(() => entranceOf(rooms), [rooms]);
   const entranceSign = useMemo(() => makeSignTexture("ENTRANCE"), []);
   const hasPassage = passage.top > 0 || passage.right > 0 || passage.bottom > 0 || passage.left > 0;
@@ -1740,7 +1827,12 @@ const Scene = memo(function Scene({
             const mid = (span.from + span.to) / 2;
             const position: [number, number, number] = line.horizontal ? [mid, 0.012, face] : [face, 0.012, mid];
             return (
-              <group key={`design-${room.id}-${wall}-${span.from}`} position={position} rotation={[0, angle, 0]} onClick={pick(room.id)}>
+              <group
+                key={`design-${room.id}-${wall}-${span.from}`}
+                position={position}
+                rotation={[0, angle, 0]}
+                onClick={pickThing({ kind: "design", roomId: room.id, wall })}
+              >
                 <WallDesign3D design={design} length={span.to - span.from} height={room.heightFt} />
               </group>
             );
@@ -1763,9 +1855,12 @@ const Scene = memo(function Scene({
               key={`${room.id}-${item.id}`}
               position={[rect.x + rect.w / 2, 0.012, rect.y + rect.h / 2]}
               rotation={[0, angle, 0]}
-              onClick={pick(room.id)}
+              onClick={pickThing({ kind: "item", roomId: room.id, itemId: item.id })}
             >
               <Furniture3D item={item} roomHeight={room.heightFt} />
+              {selectedThing?.kind === "item" && selectedThing.itemId === item.id && selectedThing.roomId === room.id && (
+                <SelectionOutline w={item.w} d={item.h} />
+              )}
             </group>
           );
         })
@@ -1779,11 +1874,25 @@ const Scene = memo(function Scene({
             <boxGeometry args={[entrance.width * 0.8, 0.04, 1]} />
             <meshStandardMaterial color="#8a5a3b" roughness={1} />
           </mesh>
-          {/* Sign board on the outside of the wall, above the door. */}
-          <mesh position={[0, 7.75, WALL_FT / 2 + 0.03]}>
-            <planeGeometry args={[Math.max(2.6, entrance.width * 0.9), 0.75]} />
-            <meshStandardMaterial map={entranceSign} roughness={0.6} />
-          </mesh>
+          {cutaway ? (
+            // Walls are cut down, so the sign stands on a post beside the doormat instead.
+            <group position={[entrance.width / 2 + 0.6, 0, WALL_FT / 2 + 0.9]}>
+              <mesh position={[0, 1.9, -0.04]} castShadow>
+                <boxGeometry args={[0.12, 3.8, 0.12]} />
+                <meshStandardMaterial color="#5b3a1f" roughness={0.8} />
+              </mesh>
+              <mesh position={[0, 4.05, 0.03]}>
+                <planeGeometry args={[2.6, 0.75]} />
+                <meshStandardMaterial map={entranceSign} roughness={0.6} side={THREE.DoubleSide} />
+              </mesh>
+            </group>
+          ) : (
+            // Sign board on the outside of the wall, above the door.
+            <mesh position={[0, 7.75, WALL_FT / 2 + 0.03]}>
+              <planeGeometry args={[Math.max(2.6, entrance.width * 0.9), 0.75]} />
+              <meshStandardMaterial map={entranceSign} roughness={0.6} />
+            </mesh>
+          )}
         </group>
       )}
 

@@ -271,7 +271,21 @@ export async function saveRoomFinish(projectId: string, input: RoomFinishInput):
   const supabase = await createClient();
   const { error } = await supabase
     .from("project_rooms")
-    .update({ plan_wall_color: parsed.data.wallColor, plan_wall_designs: parsed.data.wallDesigns })
+    .update({
+      plan_wall_color: parsed.data.wallColor,
+      plan_wall_designs: parsed.data.wallDesigns,
+      ...(parsed.data.furniture
+        ? {
+            plan_furniture: parsed.data.furniture.map((f) => ({
+              ...f,
+              x: round2(f.x),
+              y: round2(f.y),
+              w: round2(f.w),
+              h: round2(f.h),
+            })),
+          }
+        : {}),
+    })
     .eq("id", parsed.data.roomId)
     .eq("project_id", projectId)
     .eq("organization_id", ctx.organizationId);

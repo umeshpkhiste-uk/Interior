@@ -7,19 +7,15 @@ import { RoomOpenings } from "./room-openings";
 import { ROOM_CATEGORY_LABELS } from "@/lib/validations/room";
 import type { RoomWithOpenings } from "@/lib/data/rooms";
 import { computeProjectAreaTotals } from "@/lib/calculations/area";
-import { OUTER_WALL_HEIGHT_FT } from "@/lib/calculations/floor-plan";
 
 export function RoomsPanel({
   projectId,
   rooms,
   focusRoomId = null,
-  outerWallFt = 0,
 }: {
   projectId: string;
   rooms: RoomWithOpenings[];
   focusRoomId?: string | null;
-  /** Length of the flat's outer wall (from the 2D plan); shown on its own, not added to the carpet area. */
-  outerWallFt?: number;
 }) {
   const totals = computeProjectAreaTotals(
     rooms.map((r) => ({
@@ -35,13 +31,9 @@ export function RoomsPanel({
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-5">
+        <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
           <SummaryStat label="Rooms" value={String(rooms.length)} />
           <SummaryStat label="Carpet area" value={`${totals.totalFloorArea.toFixed(1)} sqft`} />
-          <SummaryStat
-            label={`Outer wall (${OUTER_WALL_HEIGHT_FT} ft high)`}
-            value={outerWallFt > 0 ? `${outerWallFt.toFixed(1)} ft · ${(outerWallFt * OUTER_WALL_HEIGHT_FT).toFixed(1)} sqft` : "—"}
-          />
           <SummaryStat label="Total net wall area" value={`${totals.totalNetWallArea.toFixed(1)} sqft`} />
           <SummaryStat label="Total ceiling area" value={`${totals.totalCeilingArea.toFixed(1)} sqft`} />
         </div>

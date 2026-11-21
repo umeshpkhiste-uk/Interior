@@ -236,6 +236,8 @@ export const roomFinishSchema = z.object({
   wallColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).nullable(),
   floorMaterial: z.enum(FLOOR_MATERIALS).nullable(),
   wallDesigns: z.array(wallDesignSchema).max(4),
+  /** The room's furniture after removing an item in the 3D view (left out = unchanged). */
+  furniture: z.array(furnitureItemSchema).max(60).optional(),
 });
 
 export type RoomFinishInput = z.infer<typeof roomFinishSchema>;
