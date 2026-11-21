@@ -396,7 +396,13 @@ export function FloorPlan3DView({
         >
           <SquareDashed className="size-4" /> Cut-away walls
         </Button>
-        <Button size="sm" variant={labels ? "secondary" : "outline"} aria-pressed={labels} onClick={() => setLabels((v) => !v)}>
+        <Button
+          size="sm"
+          variant={labels ? "secondary" : "outline"}
+          aria-pressed={labels}
+          title="Point at a room to see its name and size"
+          onClick={() => setLabels((v) => !v)}
+        >
           <Layers className="size-4" /> Room labels
         </Button>
         <Button size="sm" variant="outline" onClick={downloadImage} className="ml-auto">
@@ -405,8 +411,8 @@ export function FloorPlan3DView({
       </div>
       <p className="text-xs text-muted-foreground">
         {walk
-          ? "Eye level: drag to look around, W/A/S/D or the arrow keys (or the on-screen pad) to walk, scroll to step forward or back. Double-click any floor to stand there."
-          : "Use the height slider to go from eye level up to the top view. Drag to orbit, scroll or pinch to zoom, right-drag to pan. Double-click any floor to stand there at eye level."}
+          ? "Eye level: drag (or swipe sideways on a trackpad) to look around, W/A/S/D or the arrow keys (or the on-screen pad) to walk, scroll to step forward or back. Double-click any floor to stand there."
+          : "Use the height slider to go from eye level up to the top view. Drag or swipe sideways to turn, scroll or pinch to zoom, right-drag to pan. Point at a room to see its name and size. Double-click any floor to stand there at eye level."}
       </p>
       <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_300px]">
         <div
@@ -900,17 +906,31 @@ function CameraRig({
     if (c) configure(c, walk);
   }, [controlsRef, configure, walk]);
 
-  // At eye level the wheel steps forward and back instead of zooming.
+  // A sideways trackpad swipe (or shift+wheel) turns the view left/right the same way a drag
+  // does. At eye level the up/down wheel steps forward and back instead of zooming. This
+  // listens on the canvas's parent in the capture phase so it runs before camera-controls'
+  // own zoom handler.
   useEffect(() => {
-    if (!walk) return;
-    const el = gl.domElement;
+    const el = gl.domElement.parentElement ?? gl.domElement;
     const onWheel = (e: WheelEvent) => {
-      e.preventDefault();
       const c = controlsRef.current;
-      if (c) walkBy(c, -e.deltaY * 0.012, 0, colliders, true);
+      if (!c) return;
+      const dx = e.deltaX || (e.shiftKey ? e.deltaY : 0);
+      const sideways = Math.abs(dx) > Math.abs(e.deltaY) || (e.shiftKey && dx !== 0);
+      if (sideways) {
+        e.preventDefault();
+        e.stopPropagation();
+        const height = gl.domElement.clientHeight || 1;
+        void c.rotate((Math.PI * c.azimuthRotateSpeed * dx) / height, 0, true);
+        return;
+      }
+      if (!walk) return;
+      e.preventDefault();
+      e.stopPropagation();
+      walkBy(c, -e.deltaY * 0.012, 0, colliders, true);
     };
-    el.addEventListener("wheel", onWheel, { passive: false });
-    return () => el.removeEventListener("wheel", onWheel);
+    el.addEventListener("wheel", onWheel, { passive: false, capture: true });
+    return () => el.removeEventListener("wheel", onWheel, { capture: true });
   }, [walk, gl, controlsRef, colliders]);
 
   useFrame((state, delta) => {
@@ -1053,6 +1073,7 @@ function FloorPlane({
   selected = false,
   onClick,
   onDoubleClick,
+  onHover,
 }: {
   kind: FloorKind;
   x: number;
@@ -1064,6 +1085,7 @@ function FloorPlane({
   selected?: boolean;
   onClick?: (e: ThreeEvent<MouseEvent>) => void;
   onDoubleClick?: (e: ThreeEvent<MouseEvent>) => void;
+  onHover?: (over: boolean) => void;
 }) {
   const map = useMemo(() => {
     const t = textures[kind].clone();
@@ -1072,7 +1094,21 @@ function FloorPlane({
     return t;
   }, [textures, kind, w, d]);
   return (
-    <mesh position={[x + w / 2, y, z + d / 2]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow onClick={onClick} onDoubleClick={onDoubleClick}>
+    <mesh
+      position={[x + w / 2, y, z + d / 2]}
+      rotation={[-Math.PI / 2, 0, 0]}
+      receiveShadow
+      onClick={onClick}
+      onDoubleClick={onDoubleClick}
+      onPointerOver={
+        onHover &&
+        ((e) => {
+          e.stopPropagation();
+          onHover(true);
+        })
+      }
+      onPointerOut={onHover && (() => onHover(false))}
+    >
       <planeGeometry args={[w, d]} />
       <meshStandardMaterial
         map={map}
@@ -1213,6 +1249,10 @@ const Scene = memo(function Scene({
     e.stopPropagation();
     if (e.delta <= 4) onSelect(roomId);
   };
+  // Room names and sizes show only for the room under the pointer.
+  const [hoverId, setHoverId] = useState<string | null>(null);
+  const hover = (roomId: string) => (over: boolean) =>
+    setHoverId((current) => (over ? roomId : current === roomId ? null : current));
   const standAt = (roomId: string | null) => (e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation();
     onWalkTo(e.point.clone(), roomId);
@@ -1272,6 +1312,7 @@ const Scene = memo(function Scene({
             selected={room.id === selectedId}
             onClick={pick(room.id)}
             onDoubleClick={standAt(room.id)}
+            onHover={hover(room.id)}
           />
         );
       })}
@@ -1324,9 +1365,15 @@ const Scene = memo(function Scene({
           const { w, h } = footprint(room);
           const y = (cutaway ? Math.min(room.heightFt, CUTAWAY_FT) : room.heightFt) + 0.8;
           return (
-            <Html key={`label-${room.id}`} position={[room.x + w / 2, y, room.y + h / 2]} center zIndexRange={[20, 0]}>
+            <Html
+              key={`label-${room.id}`}
+              position={[room.x + w / 2, y, room.y + h / 2]}
+              center
+              zIndexRange={[20, 0]}
+              pointerEvents="none"
+            >
               <div
-                hidden={!labels}
+                hidden={!labels || hoverId !== room.id}
                 className="pointer-events-none rounded-md bg-white/85 px-2 py-0.5 text-center whitespace-nowrap shadow-sm ring-1 ring-black/5"
               >
                 <div className="text-[11px] font-bold tracking-wide text-neutral-800 uppercase">{room.name}</div>

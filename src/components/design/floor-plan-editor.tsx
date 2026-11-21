@@ -47,6 +47,7 @@ import {
   toOwnWall,
   transferItem,
   toWallGap,
+  openingsOnRemovedWalls,
   wallGapLine,
   wallPieceAt,
   wallSegments,
@@ -205,9 +206,13 @@ export function FloorPlanEditor({
 
   const walls = useMemo(() => wallSegments(rooms), [rooms]);
   const sharedWallsByRoom = useMemo(() => new Map(rooms.map((r) => [r.id, sharedWalls(r, rooms)])), [rooms]);
+  /** Doors/windows on removed wall pieces: hidden now, deleted on save (putting the wall back restores them). */
+  const removedOpeningIds = useMemo(() => openingsOnRemovedWalls(rooms), [rooms]);
   const selectedRoom = selection ? rooms.find((r) => r.id === selection.roomId) ?? null : null;
   const selectedOpening =
-    selection?.kind === "opening" ? selectedRoom?.openings.find((o) => o.id === selection.openingId) ?? null : null;
+    selection?.kind === "opening" && !removedOpeningIds.has(selection.openingId)
+      ? selectedRoom?.openings.find((o) => o.id === selection.openingId) ?? null
+      : null;
   const selectedItem =
     selection?.kind === "item" ? selectedRoom?.furniture.find((f) => f.id === selection.itemId) ?? null : null;
 
@@ -732,6 +737,9 @@ export function FloorPlanEditor({
           };
         }),
         openings: changedOpenings(),
+        removedOpenings: rooms.flatMap((r) =>
+          r.openings.filter((o) => removedOpeningIds.has(o.id)).map((o) => ({ id: o.rowId, roomId: r.id }))
+        ),
       },
     };
   }
@@ -1110,7 +1118,9 @@ export function FloorPlanEditor({
             const floor = FLOOR_FILL[floorKind(room)];
             return (
               <g key={`open-${room.id}`} transform={`translate(${room.x} ${room.y}) ${localTransform(room)}`}>
-                {resolveOpenings(room, sharedWallsByRoom.get(room.id) ?? new Set()).map((placed) => {
+                {resolveOpenings(room, sharedWallsByRoom.get(room.id) ?? new Set())
+                  .filter((placed) => !removedOpeningIds.has(placed.opening.id))
+                  .map((placed) => {
                   const selected = selection?.kind === "opening" && selection.openingId === placed.opening.id;
                   const swing = placed.opening.type === "door" ? placed.width : 0;
                   return (

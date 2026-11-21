@@ -128,6 +128,11 @@ export const floorPlanSaveSchema = z.object({
       })
     )
     .max(500),
+  /** Doors/windows that sat on a removed wall piece; they are deleted. */
+  removedOpenings: z
+    .array(z.object({ id: z.string().uuid(), roomId: z.string().uuid() }))
+    .max(500)
+    .default([]),
 });
 
 export type FloorPlanSaveInput = z.infer<typeof floorPlanSaveSchema>;

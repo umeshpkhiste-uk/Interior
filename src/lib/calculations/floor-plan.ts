@@ -507,6 +507,22 @@ export function wallGapLine(room: FloorPlanRoom, gap: WallGap): PlanLine {
     : { horizontal, at: a.x, from: Math.min(a.y, b.y), to: Math.max(a.y, b.y) };
 }
 
+/** Ids of doors/windows whose middle sits on a removed wall piece — they go with the wall. */
+export function openingsOnRemovedWalls(rooms: FloorPlanRoom[]): Set<string> {
+  const gaps = rooms.flatMap((room) => (room.wallGaps ?? []).map((g) => wallGapLine(room, g)));
+  if (gaps.length === 0) return new Set();
+  return new Set(
+    openingSpans(rooms)
+      .filter((o) => {
+        const mid = (o.from + o.to) / 2;
+        return gaps.some(
+          (g) => g.horizontal === o.horizontal && Math.abs(g.at - o.at) < 0.2 && mid >= g.from - 0.01 && mid <= g.to + 0.01
+        );
+      })
+      .map((o) => o.id)
+  );
+}
+
 /**
  * The piece of a drawn wall around a clicked point: it runs between the nearest places
  * where another room's wall meets this one (or the segment's own ends).

@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireCurrentUserContext } from "@/lib/data/organization";
-import { createOpening, createRoom, updateOpening, updateRoom } from "@/lib/actions/rooms";
+import { createOpening, createRoom, deleteOpening, updateOpening, updateRoom } from "@/lib/actions/rooms";
 import {
   floorPlanSaveSchema,
   newAreaSchema,
@@ -26,7 +26,7 @@ export async function saveFloorPlanLayout(projectId: string, input: FloorPlanSav
   const supabase = await createClient();
 
   // Size changes go through the same path as the Room Measurements form, so areas are recomputed.
-  const { rooms, passage, openings } = parsed.data;
+  const { rooms, passage, openings, removedOpenings } = parsed.data;
   const resized = rooms.filter((r) => r.size);
   if (resized.length > 0) {
     const { data: rows, error } = await supabase
@@ -79,8 +79,43 @@ export async function saveFloorPlanLayout(projectId: string, input: FloorPlanSav
   const failed = results.find((r) => r.error);
   if (failed?.error) return { error: failed.error.message };
 
-  const openingError = await saveOpeningPlacements(ctx.organizationId, projectId, openings);
+  const removedIds = new Set(removedOpenings.map((o) => o.id));
+  const openingError = await saveOpeningPlacements(
+    ctx.organizationId,
+    projectId,
+    openings.filter((o) => !removedIds.has(o.id))
+  );
   if (openingError) return { error: openingError };
+
+  // Doors/windows on removed wall pieces go with the wall (and off Room Measurements). A
+  // Room Measurements row with quantity > 1 only loses the copies that were removed.
+  const removedCount = new Map<string, { roomId: string; count: number }>();
+  for (const o of removedOpenings) {
+    const entry = removedCount.get(o.id) ?? { roomId: o.roomId, count: 0 };
+    entry.count++;
+    removedCount.set(o.id, entry);
+  }
+  if (removedCount.size > 0) {
+    const { data: rows, error } = await supabase
+      .from("room_openings")
+      .select("id, opening_type, width, height, quantity")
+      .eq("organization_id", ctx.organizationId)
+      .in("id", [...removedCount.keys()]);
+    if (error) return { error: error.message };
+    for (const row of rows) {
+      const { roomId, count } = removedCount.get(row.id)!;
+      const result =
+        count >= row.quantity
+          ? await deleteOpening(row.id, roomId, projectId)
+          : await updateOpening(row.id, roomId, projectId, {
+              openingType: row.opening_type,
+              width: Number(row.width ?? 0),
+              height: Number(row.height ?? 0),
+              quantity: row.quantity - count,
+            });
+      if (result.error) return { error: result.error };
+    }
+  }
 
   revalidatePath("/design/2d");
   revalidatePath(`/projects/${projectId}`);
