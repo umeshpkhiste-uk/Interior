@@ -998,7 +998,7 @@ export function FloorPlanEditor({
                 <rect
                   width={w}
                   height={h}
-                  fill={FLOOR_FILL[floorKind(room.category)]}
+                  fill={FLOOR_FILL[floorKind(room)]}
                   onPointerDown={(e) => startDrag(e, room.id, null, room.x, room.y)}
                   className={drag?.roomId === room.id && !drag.itemId ? "cursor-grabbing" : "cursor-grab"}
                   style={{ touchAction: "none" }}
@@ -1046,7 +1046,7 @@ export function FloorPlanEditor({
           </g>
 
           {rooms.map((room) => {
-            const floor = FLOOR_FILL[floorKind(room.category)];
+            const floor = FLOOR_FILL[floorKind(room)];
             return (
               <g key={`open-${room.id}`} transform={`translate(${room.x} ${room.y}) ${localTransform(room)}`}>
                 {resolveOpenings(room, sharedWallsByRoom.get(room.id) ?? new Set()).map((placed) => {
@@ -1089,12 +1089,14 @@ export function FloorPlanEditor({
             const anchor = labelAnchor(room, labelW, fs * 2.4, rooms);
             const cx = anchor.x;
             const cy = anchor.y - fs * 0.35;
+            const darkFloor = ["granite", "walnut", "concrete"].includes(floorKind(room));
+            const [ink, subInk, halo] = darkFloor ? ["#ffffff", "#f1ede6", "#1f1f1fb3"] : ["#2b2b2b", "#3a3a3a", "#fbf8f3b3"];
             return (
               <g key={`label-${room.id}`} pointerEvents="none" fontFamily="Arial, Helvetica, sans-serif" textAnchor="middle">
-                <text x={cx} y={cy} fontSize={fs} fontWeight={700} fill="#2b2b2b" stroke="#fbf8f3b3" strokeWidth={fs * 0.2} paintOrder="stroke" letterSpacing={0.02}>
+                <text x={cx} y={cy} fontSize={fs} fontWeight={700} fill={ink} stroke={halo} strokeWidth={fs * 0.2} paintOrder="stroke" letterSpacing={0.02}>
                   {room.name.toUpperCase()}
                 </text>
-                <text x={cx} y={cy + fs * 1.2} fontSize={fs * 0.85} fontWeight={600} fill="#3a3a3a" stroke="#fbf8f3b3" strokeWidth={fs * 0.2} paintOrder="stroke">
+                <text x={cx} y={cy + fs * 1.2} fontSize={fs * 0.85} fontWeight={600} fill={subInk} stroke={halo} strokeWidth={fs * 0.2} paintOrder="stroke">
                   {sizeText}
                 </text>
               </g>

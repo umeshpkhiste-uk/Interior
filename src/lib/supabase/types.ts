@@ -2547,9 +2547,11 @@ export type Database = {
           length_ft: number | null
           net_wall_area: number | null
           organization_id: string
+          plan_floor_material: string | null
           plan_furniture: Json | null
           plan_open_walls: string[]
           plan_rotation: number
+          plan_wall_color: string | null
           plan_x: number | null
           plan_y: number | null
           project_id: string
@@ -2572,9 +2574,11 @@ export type Database = {
           length_ft?: number | null
           net_wall_area?: number | null
           organization_id: string
+          plan_floor_material?: string | null
           plan_furniture?: Json | null
           plan_open_walls?: string[]
           plan_rotation?: number
+          plan_wall_color?: string | null
           plan_x?: number | null
           plan_y?: number | null
           project_id: string
@@ -2597,9 +2601,11 @@ export type Database = {
           length_ft?: number | null
           net_wall_area?: number | null
           organization_id?: string
+          plan_floor_material?: string | null
           plan_furniture?: Json | null
           plan_open_walls?: string[]
           plan_rotation?: number
+          plan_wall_color?: string | null
           plan_x?: number | null
           plan_y?: number | null
           project_id?: string

@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { formatFeetInches, rotationTransform, type FloorPlanRoom, type Wall } from "@/lib/calculations/floor-plan";
-import type { FurnitureItem, PlanPassage } from "@/lib/validations/floor-plan";
+import type { FloorMaterial, FurnitureItem, PlanPassage } from "@/lib/validations/floor-plan";
 
 export const WALL_FT = 0.32;
 export const WALL_COLOR = "#3b3b3b";
@@ -29,10 +29,12 @@ const C = {
   line: "#5a5048",
 };
 
-export type FloorKind = "wood" | "tile" | "wetTile" | "stone" | "concrete" | "paver";
+export type FloorKind = FloorMaterial;
 
-export function floorKind(category: FloorPlanRoom["category"]): FloorKind {
-  switch (category) {
+/** The room's chosen floor material, or the default for its type. */
+export function floorKind(room: Pick<FloorPlanRoom, "category" | "floorMaterial">): FloorKind {
+  if (room.floorMaterial) return room.floorMaterial;
+  switch (room.category) {
     case "master_bedroom":
     case "bedroom_2":
     case "bedroom_3":
@@ -55,6 +57,10 @@ export function floorKind(category: FloorPlanRoom["category"]): FloorKind {
 
 export const FLOOR_FILL: Record<FloorKind, string> = {
   wood: "url(#floor-wood)",
+  walnut: "url(#floor-walnut)",
+  marble: "url(#floor-marble)",
+  granite: "url(#floor-granite)",
+  carpet: "url(#floor-carpet)",
   tile: "url(#floor-tile)",
   wetTile: "url(#floor-wet)",
   stone: "url(#floor-stone)",
@@ -64,6 +70,10 @@ export const FLOOR_FILL: Record<FloorKind, string> = {
 
 const FLOOR_BASE: Record<FloorKind, string> = {
   wood: "#c99b6b",
+  walnut: "#6f4a2f",
+  marble: "#f4f2ee",
+  granite: "#3b3a3d",
+  carpet: "#b9ad99",
   tile: "#f1ebe0",
   wetTile: "#c9cac7",
   stone: "#d6d3cc",
@@ -79,6 +89,27 @@ export function PlanDefs() {
         <rect width={4} height={1} fill={FLOOR_BASE.wood} />
         <rect y={0.5} width={4} height={0.5} fill="#c3946a" />
         <path d="M0 0.5H4M0 1H4M1.3 0V0.5M3.4 0V0.5M0.4 0.5V1M2.5 0.5V1" stroke="#b07f55" strokeWidth={0.02} />
+      </pattern>
+      <pattern id="floor-walnut" width={4} height={1} patternUnits="userSpaceOnUse">
+        <rect width={4} height={1} fill={FLOOR_BASE.walnut} />
+        <rect y={0.5} width={4} height={0.5} fill="#664329" />
+        <path d="M0 0.5H4M0 1H4M1.3 0V0.5M3.4 0V0.5M0.4 0.5V1M2.5 0.5V1" stroke="#4f331f" strokeWidth={0.02} />
+      </pattern>
+      <pattern id="floor-marble" width={4} height={4} patternUnits="userSpaceOnUse">
+        <rect width={4} height={4} fill={FLOOR_BASE.marble} />
+        <path d="M0 1.2C1 0.9 1.6 1.8 2.6 1.4S3.6 2.4 4 2.2M0.3 3.4C1.1 3 2 3.7 2.8 3.2" fill="none" stroke="#d9d4cb" strokeWidth={0.04} />
+        <path d="M4 0H0V4" fill="none" stroke="#e6e1d8" strokeWidth={0.02} />
+      </pattern>
+      <pattern id="floor-granite" width={2} height={2} patternUnits="userSpaceOnUse">
+        <rect width={2} height={2} fill={FLOOR_BASE.granite} />
+        {[0.2, 0.7, 1.3, 1.7, 0.5, 1.1, 1.5, 0.9].map((v, i) => (
+          <circle key={i} cx={(v * 7) % 2} cy={(v * 3 + i * 0.37) % 2} r={0.04} fill={i % 2 ? "#5d5b60" : "#26252a"} />
+        ))}
+        <path d="M2 0H0V2" fill="none" stroke="#2a292c" strokeWidth={0.03} />
+      </pattern>
+      <pattern id="floor-carpet" width={0.5} height={0.5} patternUnits="userSpaceOnUse">
+        <rect width={0.5} height={0.5} fill={FLOOR_BASE.carpet} />
+        <path d="M0 0.25H0.5M0.25 0V0.5" stroke="#ada08b" strokeWidth={0.015} opacity={0.5} />
       </pattern>
       <pattern id="floor-tile" width={2} height={2} patternUnits="userSpaceOnUse">
         <rect width={2} height={2} fill={FLOOR_BASE.tile} />

@@ -94,7 +94,7 @@ async function Project3D({
       {rooms.length > 0 ? (
         <Card>
           <CardContent className="pt-4">
-            <FloorPlan3DView projectName={projectName} rooms={rooms} passage={passage} />
+            <FloorPlan3DView projectId={projectId} projectName={projectName} rooms={rooms} passage={passage} />
           </CardContent>
         </Card>
       ) : (

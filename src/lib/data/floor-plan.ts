@@ -1,6 +1,14 @@
 import { listRoomsForProject } from "@/lib/data/rooms";
 import { autoArrange, clampItem, defaultFurniture, footprint, type FloorPlanRoom, type PlanOpening, type PlanRotation } from "@/lib/calculations/floor-plan";
-import { NO_PASSAGE, PLAN_WALLS, furnitureItemSchema, passageSchema, type PlanPassage } from "@/lib/validations/floor-plan";
+import {
+  FLOOR_MATERIALS,
+  NO_PASSAGE,
+  PLAN_WALLS,
+  furnitureItemSchema,
+  passageSchema,
+  type FloorMaterial,
+  type PlanPassage,
+} from "@/lib/validations/floor-plan";
 import { createClient } from "@/lib/supabase/server";
 
 export type MissingFloorPlanInput = {
@@ -99,6 +107,10 @@ export async function getFloorPlan(organizationId: string, projectId: string): P
       rotation: (row.plan_rotation ?? 0) as PlanRotation,
       openings,
       furniture,
+      wallColor: row.plan_wall_color,
+      floorMaterial: (FLOOR_MATERIALS as readonly string[]).includes(row.plan_floor_material ?? "")
+        ? (row.plan_floor_material as FloorMaterial)
+        : null,
       openWalls: (row.plan_open_walls ?? []).filter((w): w is (typeof PLAN_WALLS)[number] =>
         (PLAN_WALLS as readonly string[]).includes(w)
       ),

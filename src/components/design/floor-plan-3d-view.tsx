@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Canvas, useThree } from "@react-three/fiber";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Canvas, useThree, type ThreeEvent } from "@react-three/fiber";
 import { Html, OrbitControls } from "@react-three/drei";
 import * as THREE from "three";
-import { Box as BoxIcon, Download, Eye, Layers, Scan, SquareDashed } from "lucide-react";
+import { Box as BoxIcon, Check, Download, Eye, Layers, Paintbrush, Scan, SquareDashed } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
+  containsPoint,
   footprint,
   isPassage,
   itemPlanRect,
@@ -15,13 +17,24 @@ import {
   type FloorPlanRoom,
   type OpeningSpan,
 } from "@/lib/calculations/floor-plan";
-import type { PlanPassage } from "@/lib/validations/floor-plan";
+import {
+  DEFAULT_WALL_COLOR,
+  FLOOR_MATERIALS,
+  FLOOR_MATERIAL_INFO,
+  PAINT_COLORS,
+  type FloorMaterial,
+  type PlanPassage,
+  type RoomFinishInput,
+} from "@/lib/validations/floor-plan";
+import { saveRoomFinish } from "@/lib/actions/floor-plan";
+import { cn } from "@/lib/utils";
 import { floorKind, HEDGE_FT, WALL_FT, type FloorKind } from "./floor-plan-symbols";
 import { Furniture3D } from "./floor-plan-3d-models";
 
 type CameraView = "iso" | "top" | "front";
 const CUTAWAY_FT = 3;
-const WALL_COLOR = "#f1ede6";
+const EXTERIOR_WALL_COLOR = "#e9e2d6";
+const SAVE_DELAY_MS = 400;
 
 type Bounds = { minX: number; minY: number; maxX: number; maxY: number };
 
@@ -37,15 +50,61 @@ function boundsOf(rooms: FloorPlanRoom[]): Bounds {
   return { minX, minY, maxX, maxY };
 }
 
+type Finish = Pick<FloorPlanRoom, "wallColor" | "floorMaterial">;
+
 export function FloorPlan3DView({
+  projectId,
   projectName,
-  rooms,
+  rooms: savedRooms,
   passage,
 }: {
+  projectId: string;
   projectName: string;
   rooms: FloorPlanRoom[];
   passage: PlanPassage;
 }) {
+  const [finishes, setFinishes] = useState<Record<string, Finish>>(() =>
+    Object.fromEntries(savedRooms.map((r) => [r.id, { wallColor: r.wallColor, floorMaterial: r.floorMaterial }]))
+  );
+  const rooms = useMemo(() => savedRooms.map((r) => ({ ...r, ...finishes[r.id] })), [savedRooms, finishes]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
+  const pending = useRef(new Map<string, RoomFinishInput>());
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const flush = useCallback(async () => {
+    timer.current = null;
+    const batch = [...pending.current.values()];
+    pending.current.clear();
+    if (batch.length === 0) return;
+    setSaveState("saving");
+    const results = await Promise.all(batch.map((input) => saveRoomFinish(projectId, input)));
+    const failed = results.find((r) => r.error);
+    if (failed?.error) {
+      toast.error(`Couldn't save the finish: ${failed.error}`);
+      setSaveState("idle");
+    } else setSaveState("saved");
+  }, [projectId]);
+
+  // Save anything still waiting when the page is left.
+  useEffect(
+    () => () => {
+      if (timer.current) clearTimeout(timer.current);
+      void flush();
+    },
+    [flush]
+  );
+
+  function updateFinish(roomId: string, patch: Partial<Finish>) {
+    const next = { ...finishes[roomId], ...patch };
+    setFinishes((f) => ({ ...f, [roomId]: next }));
+    pending.current.set(roomId, { roomId, wallColor: next.wallColor, floorMaterial: next.floorMaterial });
+    setSaveState("saving");
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => void flush(), SAVE_DELAY_MS);
+  }
+
+  const selectedRoom = rooms.find((r) => r.id === selectedId) ?? null;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [view, setView] = useState<CameraView>("iso");
   const [viewVersion, setViewVersion] = useState(0);
@@ -97,6 +156,7 @@ export function FloorPlan3DView({
       <p className="text-xs text-muted-foreground">
         Drag to orbit, scroll or pinch to zoom, right-drag (or two fingers) to pan. Built from the saved 2D plan and room heights.
       </p>
+      <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_300px]">
       <div className="h-[70vh] min-h-[420px] overflow-hidden rounded-lg border bg-[#f3efe8]">
         <Canvas
           ref={canvasRef}
@@ -107,13 +167,164 @@ export function FloorPlan3DView({
         >
           <color attach="background" args={["#f3efe8"]} />
           <group position={[-center.x, 0, -center.z]}>
-            <Scene rooms={rooms} passage={passage} building={building} cutaway={cutaway} labels={labels} />
+            <Scene
+              rooms={rooms}
+              passage={passage}
+              building={building}
+              cutaway={cutaway}
+              labels={labels}
+              selectedId={selectedId}
+              onSelect={setSelectedId}
+            />
           </group>
           <Lights span={span} />
           <CameraRig view={view} version={viewVersion} span={span} />
           <OrbitControls makeDefault enableDamping dampingFactor={0.12} maxPolarAngle={Math.PI / 2 - 0.04} minDistance={4} maxDistance={span * 4} />
         </Canvas>
       </div>
+      <FinishesPanel
+        rooms={rooms}
+        selected={selectedRoom}
+        onSelect={setSelectedId}
+        onChange={updateFinish}
+        saveState={saveState}
+      />
+      </div>
+    </div>
+  );
+}
+
+function FinishesPanel({
+  rooms,
+  selected,
+  onSelect,
+  onChange,
+  saveState,
+}: {
+  rooms: FloorPlanRoom[];
+  selected: FloorPlanRoom | null;
+  onSelect: (id: string | null) => void;
+  onChange: (roomId: string, patch: Partial<Finish>) => void;
+  saveState: "idle" | "saving" | "saved";
+}) {
+  const currentFloor = selected ? floorKind(selected) : null;
+  const currentWall = selected?.wallColor ?? DEFAULT_WALL_COLOR;
+  return (
+    <div className="flex flex-col gap-4 rounded-lg border p-3">
+      <div className="flex items-center justify-between gap-2">
+        <p className="flex items-center gap-1.5 text-sm font-medium">
+          <Paintbrush className="size-4" /> Finishes
+        </p>
+        <span className="text-xs text-muted-foreground" aria-live="polite">
+          {saveState === "saving" ? "Saving…" : saveState === "saved" ? (
+            <span className="flex items-center gap-1">
+              <Check className="size-3" /> Saved
+            </span>
+          ) : null}
+        </span>
+      </div>
+      <label className="flex flex-col gap-1 text-xs text-muted-foreground">
+        Room
+        <select
+          className="h-8 rounded-md border bg-background px-2 text-sm text-foreground"
+          value={selected?.id ?? ""}
+          onChange={(e) => onSelect(e.target.value || null)}
+        >
+          <option value="">Choose a room…</option>
+          {rooms.map((r) => (
+            <option key={r.id} value={r.id}>
+              {r.name}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      {!selected ? (
+        <p className="text-xs text-muted-foreground">
+          Click a room in the model, or choose one above, to set its wall paint and floor. Changes save automatically and
+          show on the 2D plan too.
+        </p>
+      ) : (
+        <>
+          <div className="flex flex-col gap-2">
+            <p className="text-xs font-medium text-muted-foreground">Wall paint</p>
+            <div className="grid grid-cols-6 gap-1.5">
+              {PAINT_COLORS.map((c) => {
+                const on = selected.wallColor?.toLowerCase() === c.hex;
+                return (
+                  <button
+                    key={c.hex}
+                    type="button"
+                    title={c.name}
+                    aria-label={`${c.name} wall paint`}
+                    aria-pressed={on}
+                    onClick={() => onChange(selected.id, { wallColor: c.hex })}
+                    className={cn(
+                      "aspect-square rounded-md ring-1 ring-black/10 transition",
+                      on && "ring-2 ring-primary ring-offset-1"
+                    )}
+                    style={{ background: c.hex }}
+                  />
+                );
+              })}
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="flex items-center gap-2 text-xs text-muted-foreground">
+                Custom
+                <input
+                  type="color"
+                  value={currentWall}
+                  onChange={(e) => onChange(selected.id, { wallColor: e.target.value })}
+                  className="h-7 w-10 cursor-pointer rounded border bg-background p-0.5"
+                  aria-label="Custom wall paint colour"
+                />
+              </label>
+              <Button
+                size="xs"
+                variant="ghost"
+                className="ml-auto"
+                disabled={!selected.wallColor}
+                onClick={() => onChange(selected.id, { wallColor: null })}
+              >
+                Default
+              </Button>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-2">
+            <p className="text-xs font-medium text-muted-foreground">Floor</p>
+            <div className="grid grid-cols-2 gap-1.5">
+              {FLOOR_MATERIALS.map((m) => {
+                const on = currentFloor === m;
+                return (
+                  <button
+                    key={m}
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() => onChange(selected.id, { floorMaterial: m })}
+                    className={cn(
+                      "flex items-center gap-2 rounded-md border px-2 py-1.5 text-left text-xs transition hover:bg-muted/60",
+                      on && "border-primary bg-muted"
+                    )}
+                  >
+                    <span className="size-4 shrink-0 rounded-sm ring-1 ring-black/10" style={{ background: FLOOR_MATERIAL_INFO[m].swatch }} />
+                    {FLOOR_MATERIAL_INFO[m].label}
+                  </button>
+                );
+              })}
+            </div>
+            <Button
+              size="xs"
+              variant="ghost"
+              className="self-end"
+              disabled={!selected.floorMaterial}
+              onClick={() => onChange(selected.id, { floorMaterial: null })}
+            >
+              Default for room type
+            </Button>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -157,7 +368,18 @@ function CameraRig({ view, version, span }: { view: CameraView; version: number;
 }
 
 /** Feet of floor covered by one copy of each generated texture. */
-const TEXTURE_FEET: Record<FloorKind, number> = { wood: 4, tile: 4, wetTile: 2, stone: 3, concrete: 12, paver: 2 };
+const TEXTURE_FEET: Record<FloorKind, number> = {
+  wood: 4,
+  walnut: 4,
+  tile: 4,
+  marble: 6,
+  granite: 4,
+  stone: 3,
+  wetTile: 2,
+  concrete: 12,
+  carpet: 3,
+  paver: 2,
+};
 
 function makeFloorTexture(kind: FloorKind): THREE.CanvasTexture {
   const size = 256;
@@ -180,10 +402,12 @@ function makeFloorTexture(kind: FloorKind): THREE.CanvasTexture {
     }
   };
   switch (kind) {
-    case "wood": {
+    case "wood":
+    case "walnut": {
       const rows = 8;
+      const [a, b] = kind === "wood" ? ["#c3946a", "#c99b6b"] : ["#664329", "#6f4a2f"];
       for (let r = 0; r < rows; r++) {
-        ctx.fillStyle = r % 2 ? "#c3946a" : "#c99b6b";
+        ctx.fillStyle = r % 2 ? a : b;
         ctx.fillRect(0, (r * size) / rows, size, size / rows);
         ctx.fillStyle = "rgba(120,80,45,0.35)";
         ctx.fillRect(0, ((r + 1) * size) / rows - 1, size, 2);
@@ -195,6 +419,35 @@ function makeFloorTexture(kind: FloorKind): THREE.CanvasTexture {
     case "tile":
       grid(2, "#f1ebe0", "#ddd3c2");
       break;
+    case "marble": {
+      grid(1, "#f4f2ee", "#e4dfd6", 2);
+      ctx.strokeStyle = "rgba(170,160,145,0.45)";
+      ctx.lineWidth = 2;
+      for (const [y0, y1, y2] of [[40, 90, 60], [150, 120, 190], [210, 240, 200]]) {
+        ctx.beginPath();
+        ctx.moveTo(0, y0);
+        ctx.bezierCurveTo(80, y1, 170, y2, size, y0 + 20);
+        ctx.stroke();
+      }
+      break;
+    }
+    case "granite": {
+      grid(2, "#3b3a3d", "#29282b");
+      for (let i = 0; i < 900; i++) {
+        ctx.fillStyle = i % 3 ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.35)";
+        ctx.fillRect((i * 73) % size, (i * 151) % size, 2, 2);
+      }
+      break;
+    }
+    case "carpet": {
+      ctx.fillStyle = "#b9ad99";
+      ctx.fillRect(0, 0, size, size);
+      for (let i = 0; i < 2500; i++) {
+        ctx.fillStyle = i % 2 ? "rgba(255,255,255,0.08)" : "rgba(60,45,25,0.08)";
+        ctx.fillRect((i * 37) % size, (i * 89) % size, 2, 2);
+      }
+      break;
+    }
     case "wetTile":
       grid(2, "#c9cac7", "#b0b1ae");
       break;
@@ -221,7 +474,27 @@ function makeFloorTexture(kind: FloorKind): THREE.CanvasTexture {
   return texture;
 }
 
-function FloorPlane({ kind, x, z, w, d, y, textures }: { kind: FloorKind; x: number; z: number; w: number; d: number; y: number; textures: Record<FloorKind, THREE.CanvasTexture> }) {
+function FloorPlane({
+  kind,
+  x,
+  z,
+  w,
+  d,
+  y,
+  textures,
+  selected = false,
+  onClick,
+}: {
+  kind: FloorKind;
+  x: number;
+  z: number;
+  w: number;
+  d: number;
+  y: number;
+  textures: Record<FloorKind, THREE.CanvasTexture>;
+  selected?: boolean;
+  onClick?: (e: ThreeEvent<MouseEvent>) => void;
+}) {
   const map = useMemo(() => {
     const t = textures[kind].clone();
     t.repeat.set(w / TEXTURE_FEET[kind], d / TEXTURE_FEET[kind]);
@@ -229,20 +502,26 @@ function FloorPlane({ kind, x, z, w, d, y, textures }: { kind: FloorKind; x: num
     return t;
   }, [textures, kind, w, d]);
   return (
-    <mesh position={[x + w / 2, y, z + d / 2]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
+    <mesh position={[x + w / 2, y, z + d / 2]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow onClick={onClick}>
       <planeGeometry args={[w, d]} />
-      <meshStandardMaterial map={map} roughness={0.85} />
+      <meshStandardMaterial
+        map={map}
+        roughness={kind === "marble" || kind === "granite" ? 0.35 : 0.85}
+        emissive={selected ? "#f59e0b" : "#000000"}
+        emissiveIntensity={selected ? 0.12 : 0}
+      />
     </mesh>
   );
 }
 
-type WallBox = { x: number; z: number; w: number; d: number; y0: number; y1: number };
-type GlassPane = WallBox;
+type WallBox = { x: number; z: number; w: number; d: number; y0: number; y1: number; color: string };
+type GlassPane = Omit<WallBox, "color">;
 
 /**
  * Turns the plan's wall segments into 3D wall blocks. Coinciding walls of neighbouring
  * rooms are merged; doors leave a full-height gap (up to the lintel), windows leave a gap
- * between sill and head that gets a glass pane.
+ * between sill and head that gets a glass pane. Each wall is built as two half-thickness
+ * skins so each face carries the paint of the room on that side.
  */
 function buildWalls(rooms: FloorPlanRoom[], cutaway: boolean): { walls: WallBox[]; glass: GlassPane[] } {
   const heightOf = new Map(rooms.map((r) => [r.id, r.heightFt]));
@@ -261,6 +540,13 @@ function buildWalls(rooms: FloorPlanRoom[], cutaway: boolean): { walls: WallBox[
   }
 
   const openings = openingSpans(rooms);
+  const solid = rooms.filter((r) => !isPassage(r));
+  const paintAt = (px: number, py: number) => {
+    const room = solid.find((r) => containsPoint(r, px, py));
+    return room ? room.wallColor ?? DEFAULT_WALL_COLOR : EXTERIOR_WALL_COLOR;
+  };
+  const edgesH = [...new Set(rooms.flatMap((r) => [r.x, r.x + footprint(r).w]))];
+  const edgesV = [...new Set(rooms.flatMap((r) => [r.y, r.y + footprint(r).h]))];
   const walls: WallBox[] = [];
   const glass: GlassPane[] = [];
   const T = WALL_FT;
@@ -278,16 +564,39 @@ function buildWalls(rooms: FloorPlanRoom[], cutaway: boolean): { walls: WallBox[
 
     for (const run of merged) {
       const top = cutaway ? Math.min(run.height, CUTAWAY_FT) : run.height;
-      const add = (from: number, to: number, y0: number, y1: number, list: WallBox[], extendEnds: boolean) => {
+      const addGlass = (from: number, to: number, y0: number, y1: number) => {
         const yTop = Math.min(y1, top);
         if (to - from < 0.01 || yTop - y0 < 0.01) return;
-        const a = extendEnds && from === run.from ? from - T / 2 : from;
-        const b = extendEnds && to === run.to ? to + T / 2 : to;
-        list.push(
+        glass.push(
           line.horizontal
-            ? { x: a, z: line.at - T / 2, w: b - a, d: T, y0, y1: yTop }
-            : { x: line.at - T / 2, z: a, w: T, d: b - a, y0, y1: yTop }
+            ? { x: from, z: line.at - T / 2, w: to - from, d: T, y0, y1: yTop }
+            : { x: line.at - T / 2, z: from, w: T, d: to - from, y0, y1: yTop }
         );
+      };
+      const add = (from: number, to: number, y0: number, y1: number, extendEnds: boolean) => {
+        const yTop = Math.min(y1, top);
+        if (to - from < 0.01 || yTop - y0 < 0.01) return;
+        // Split where rooms start/end along the wall, so each piece has one room per side.
+        const stops = [from, ...(line.horizontal ? edgesH : edgesV).filter((e) => e > from + 0.01 && e < to - 0.01), to].sort(
+          (p, q) => p - q
+        );
+        for (let i = 0; i < stops.length - 1; i++) {
+          const s0 = stops[i];
+          const s1 = stops[i + 1];
+          const a = extendEnds && s0 === run.from ? s0 - T / 2 : s0;
+          const b = extendEnds && s1 === run.to ? s1 + T / 2 : s1;
+          const mid = (s0 + s1) / 2;
+          const [before, after] = line.horizontal
+            ? [paintAt(mid, line.at - T), paintAt(mid, line.at + T)]
+            : [paintAt(line.at - T, mid), paintAt(line.at + T, mid)];
+          if (line.horizontal) {
+            walls.push({ x: a, z: line.at - T / 2, w: b - a, d: T / 2, y0, y1: yTop, color: before });
+            walls.push({ x: a, z: line.at, w: b - a, d: T / 2, y0, y1: yTop, color: after });
+          } else {
+            walls.push({ x: line.at - T / 2, z: a, w: T / 2, d: b - a, y0, y1: yTop, color: before });
+            walls.push({ x: line.at, z: a, w: T / 2, d: b - a, y0, y1: yTop, color: after });
+          }
+        }
       };
       const inRun = cuts
         .map((c): OpeningSpan => ({ ...c, from: Math.max(c.from, run.from), to: Math.min(c.to, run.to) }))
@@ -295,14 +604,14 @@ function buildWalls(rooms: FloorPlanRoom[], cutaway: boolean): { walls: WallBox[
         .sort((a, b) => a.from - b.from);
       let cursor = run.from;
       for (const c of inRun) {
-        if (c.from > cursor) add(cursor, c.from, 0, run.height, walls, true);
+        if (c.from > cursor) add(cursor, c.from, 0, run.height, true);
         const from = Math.max(c.from, cursor);
-        if (c.sill > 0) add(from, c.to, 0, c.sill, walls, false);
-        add(from, c.to, Math.min(c.top, run.height), run.height, walls, false);
-        if (c.type === "window") add(from, c.to, c.sill, Math.min(c.top, run.height), glass, false);
+        if (c.sill > 0) add(from, c.to, 0, c.sill, false);
+        add(from, c.to, Math.min(c.top, run.height), run.height, false);
+        if (c.type === "window") addGlass(from, c.to, c.sill, Math.min(c.top, run.height));
         cursor = Math.max(cursor, c.to);
       }
-      if (cursor < run.to) add(cursor, run.to, 0, run.height, walls, true);
+      if (cursor < run.to) add(cursor, run.to, 0, run.height, true);
     }
   }
   return { walls, glass };
@@ -314,17 +623,26 @@ function Scene({
   building,
   cutaway,
   labels,
+  selectedId,
+  onSelect,
 }: {
   rooms: FloorPlanRoom[];
   passage: PlanPassage;
   building: Bounds;
   cutaway: boolean;
   labels: boolean;
+  selectedId: string | null;
+  onSelect: (id: string) => void;
 }) {
+  // A click selects a room, but not the end of an orbit drag.
+  const pick = (roomId: string) => (e: ThreeEvent<MouseEvent>) => {
+    e.stopPropagation();
+    if (e.delta <= 4) onSelect(roomId);
+  };
   const textures = useMemo(
     () =>
       Object.fromEntries(
-        (["wood", "tile", "wetTile", "stone", "concrete", "paver"] as FloorKind[]).map((k) => [k, makeFloorTexture(k)])
+        (FLOOR_MATERIALS as readonly FloorMaterial[]).map((k) => [k, makeFloorTexture(k)])
       ) as Record<FloorKind, THREE.CanvasTexture>,
     []
   );
@@ -357,13 +675,15 @@ function Scene({
         return (
           <FloorPlane
             key={room.id}
-            kind={floorKind(room.category)}
+            kind={floorKind(room)}
             x={room.x}
             z={room.y}
             w={w}
             d={h}
             y={0.01 + i * 0.002}
             textures={textures}
+            selected={room.id === selectedId}
+            onClick={pick(room.id)}
           />
         );
       })}
@@ -371,7 +691,7 @@ function Scene({
       {walls.map((b, i) => (
         <mesh key={`w${i}`} position={[b.x + b.w / 2, (b.y0 + b.y1) / 2, b.z + b.d / 2]} castShadow receiveShadow>
           <boxGeometry args={[b.w, b.y1 - b.y0, b.d]} />
-          <meshStandardMaterial color={WALL_COLOR} roughness={0.9} />
+          <meshStandardMaterial color={b.color} roughness={0.9} />
         </mesh>
       ))}
       {glass.map((b, i) => (
@@ -386,7 +706,12 @@ function Scene({
           const rect = itemPlanRect(room, item);
           const angle = (-(room.rotation + item.rotation) * Math.PI) / 180;
           return (
-            <group key={`${room.id}-${item.id}`} position={[rect.x + rect.w / 2, 0.012, rect.y + rect.h / 2]} rotation={[0, angle, 0]}>
+            <group
+              key={`${room.id}-${item.id}`}
+              position={[rect.x + rect.w / 2, 0.012, rect.y + rect.h / 2]}
+              rotation={[0, angle, 0]}
+              onClick={pick(room.id)}
+            >
               <Furniture3D item={item} roomHeight={room.heightFt} />
             </group>
           );

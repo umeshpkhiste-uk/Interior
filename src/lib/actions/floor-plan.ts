@@ -8,7 +8,9 @@ import {
   floorPlanSaveSchema,
   newAreaSchema,
   newOpeningSchema,
+  roomFinishSchema,
   type FloorPlanSaveInput,
+  type RoomFinishInput,
   type NewAreaInput,
   type NewOpeningInput,
 } from "@/lib/validations/floor-plan";
@@ -194,4 +196,24 @@ export async function addFloorPlanOpening(projectId: string, input: NewOpeningIn
 
   revalidatePath("/design/2d");
   return { error: null, data: { id: created.data.id } };
+}
+
+/** Saves a room's wall paint and floor material (null = back to the default). */
+export async function saveRoomFinish(projectId: string, input: RoomFinishInput): Promise<ActionResult> {
+  const parsed = roomFinishSchema.safeParse(input);
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Invalid finish" };
+
+  const ctx = await requireCurrentUserContext();
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("project_rooms")
+    .update({ plan_wall_color: parsed.data.wallColor, plan_floor_material: parsed.data.floorMaterial })
+    .eq("id", parsed.data.roomId)
+    .eq("project_id", projectId)
+    .eq("organization_id", ctx.organizationId);
+  if (error) return { error: error.message };
+
+  revalidatePath("/design/2d");
+  revalidatePath("/design/3d");
+  return { error: null, data: undefined };
 }

@@ -150,3 +150,49 @@ export const newOpeningSchema = z.object({
 });
 
 export type NewOpeningInput = z.infer<typeof newOpeningSchema>;
+
+export const FLOOR_MATERIALS = [
+  "wood", "walnut", "tile", "marble", "granite", "stone", "wetTile", "concrete", "carpet", "paver",
+] as const;
+
+export type FloorMaterial = (typeof FLOOR_MATERIALS)[number];
+
+/** Display name and a representative colour for swatches. */
+export const FLOOR_MATERIAL_INFO: Record<FloorMaterial, { label: string; swatch: string }> = {
+  wood: { label: "Oak wood", swatch: "#c99b6b" },
+  walnut: { label: "Walnut wood", swatch: "#6f4a2f" },
+  tile: { label: "Vitrified tiles", swatch: "#f1ebe0" },
+  marble: { label: "Italian marble", swatch: "#f4f2ee" },
+  granite: { label: "Granite", swatch: "#3b3a3d" },
+  stone: { label: "Natural stone", swatch: "#d6d3cc" },
+  wetTile: { label: "Anti-skid tiles", swatch: "#c9cac7" },
+  concrete: { label: "Polished concrete", swatch: "#8f949a" },
+  carpet: { label: "Carpet", swatch: "#b9ad99" },
+  paver: { label: "Paver blocks", swatch: "#8d9095" },
+};
+
+/** Curated interior paint shades offered as quick picks (any colour can still be chosen). */
+export const PAINT_COLORS = [
+  { name: "Ivory", hex: "#f4efe4" },
+  { name: "Warm white", hex: "#efe8dc" },
+  { name: "Sand", hex: "#e3d3b8" },
+  { name: "Greige", hex: "#cfc6b8" },
+  { name: "Sage", hex: "#b9c4a8" },
+  { name: "Olive", hex: "#8f9670" },
+  { name: "Powder blue", hex: "#bfd3de" },
+  { name: "Navy", hex: "#2f4058" },
+  { name: "Terracotta", hex: "#c8795a" },
+  { name: "Blush", hex: "#e8c9c0" },
+  { name: "Mustard", hex: "#d8ac4f" },
+  { name: "Charcoal", hex: "#4a4a4d" },
+] as const;
+
+export const DEFAULT_WALL_COLOR = "#f1ede6";
+
+export const roomFinishSchema = z.object({
+  roomId: z.string().uuid(),
+  wallColor: z.string().regex(/^#[0-9a-fA-F]{6}$/).nullable(),
+  floorMaterial: z.enum(FLOOR_MATERIALS).nullable(),
+});
+
+export type RoomFinishInput = z.infer<typeof roomFinishSchema>;

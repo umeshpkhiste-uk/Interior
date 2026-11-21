@@ -1,5 +1,11 @@
 import type { Database } from "@/lib/supabase/types";
-import { FURNITURE_SIZES, PLAN_WALLS, type FurnitureItem, type FurnitureType } from "@/lib/validations/floor-plan";
+import {
+  FURNITURE_SIZES,
+  PLAN_WALLS,
+  type FloorMaterial,
+  type FurnitureItem,
+  type FurnitureType,
+} from "@/lib/validations/floor-plan";
 
 export type PlanRotation = 0 | 90 | 180 | 270;
 
@@ -25,6 +31,9 @@ export type FloorPlanRoom = {
   furniture: FurnitureItem[];
   /** Own-frame sides drawn without a wall. */
   openWalls: Wall[];
+  /** Chosen wall paint (hex) and floor material; null = default for the room type. */
+  wallColor: string | null;
+  floorMaterial: FloorMaterial | null;
 };
 
 export type PlanOpening = {
