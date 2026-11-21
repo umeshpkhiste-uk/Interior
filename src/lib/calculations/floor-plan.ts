@@ -14,6 +14,8 @@ export type FloorPlanRoom = {
   /** Room's own length (local x-axis) and width (local y-axis) in feet, before rotation. */
   lengthFt: number;
   widthFt: number;
+  /** Ceiling height in feet (walls are built to this in 3D). */
+  heightFt: number;
   /** Top-left of the room's rotated footprint, in feet. */
   x: number;
   y: number;
@@ -96,6 +98,57 @@ export function resolveOpenings(room: FloorPlanRoom, shared: Set<Wall>): Resolve
     }
   }
   return resolved;
+}
+
+/** Where a door/window cuts a wall on the plan: an axis-aligned span plus its height band in feet. */
+export type OpeningSpan = {
+  id: string;
+  type: "door" | "window";
+  horizontal: boolean;
+  /** y of a horizontal wall, x of a vertical one. */
+  at: number;
+  from: number;
+  to: number;
+  sill: number;
+  top: number;
+};
+
+function wallFramePoint(room: FloorPlanRoom, wall: Wall, along: number): { x: number; y: number } {
+  const L = room.lengthFt;
+  const W = room.widthFt;
+  switch (wall) {
+    case "top":
+      return localToPlan(room, along, 0);
+    case "right":
+      return localToPlan(room, L, along);
+    case "bottom":
+      return localToPlan(room, L - along, W);
+    case "left":
+      return localToPlan(room, 0, W - along);
+  }
+}
+
+export function openingSpans(rooms: FloorPlanRoom[]): OpeningSpan[] {
+  return rooms.flatMap((room) =>
+    resolveOpenings(room, sharedWalls(room, rooms)).map(({ opening, wall, offset, width }) => {
+      const a = wallFramePoint(room, wall, offset);
+      const b = wallFramePoint(room, wall, offset + width);
+      const horizontal = Math.abs(a.y - b.y) < 1e-6;
+      const maxTop = room.heightFt - 0.5;
+      const sill = opening.type === "door" ? 0 : Math.min(3, maxTop - 1);
+      const top = Math.min(sill + (opening.heightFt > 0 ? opening.heightFt : opening.type === "door" ? 7 : 4), maxTop);
+      return {
+        id: opening.id,
+        type: opening.type,
+        horizontal,
+        at: horizontal ? a.y : a.x,
+        from: horizontal ? Math.min(a.x, b.x) : Math.min(a.y, b.y),
+        to: horizontal ? Math.max(a.x, b.x) : Math.max(a.y, b.y),
+        sill,
+        top,
+      };
+    })
+  );
 }
 
 /** Converts a movement on the plan into movement along one of the room's own walls. */
@@ -336,7 +389,7 @@ export function defaultFurniture(room: Pick<FloorPlanRoom, "category" | "lengthF
 type Rect = { x: number; y: number; w: number; h: number };
 
 /** A furniture item's bounding box on the plan (world feet), after the room's rotation. */
-function itemPlanRect(room: FloorPlanRoom, item: FurnitureItem): Rect {
+export function itemPlanRect(room: FloorPlanRoom, item: FurnitureItem): Rect {
   const f = footprint(item);
   const L = room.lengthFt;
   const W = room.widthFt;
@@ -386,7 +439,7 @@ export function toOwnWall(side: Wall, rotation: PlanRotation): Wall {
   return WALLS[(WALLS.indexOf(side) - rotation / 90 + 4) % 4];
 }
 
-export type WallSegment = { x1: number; y1: number; x2: number; y2: number };
+export type WallSegment = { x1: number; y1: number; x2: number; y2: number; roomId: string };
 
 const WALL_TOLERANCE_FT = 0.1;
 
@@ -449,7 +502,9 @@ export function wallSegments(rooms: FloorPlanRoom[]): WallSegment[] {
       for (const [from, to] of spans) {
         if (to - from < 0.05) continue;
         segments.push(
-          line.horizontal ? { x1: from, y1: line.at, x2: to, y2: line.at } : { x1: line.at, y1: from, x2: line.at, y2: to }
+          line.horizontal
+            ? { x1: from, y1: line.at, x2: to, y2: line.at, roomId: a.room.id }
+            : { x1: line.at, y1: from, x2: line.at, y2: to, roomId: a.room.id }
         );
       }
     }

@@ -93,6 +93,7 @@ export async function getFloorPlan(organizationId: string, projectId: string): P
       width: Number(row.width ?? 0),
       lengthFt,
       widthFt,
+      heightFt: Number(row.height_ft ?? 0) > 0 ? Number(row.height_ft) : 10,
       x: Number(row.plan_x ?? 0),
       y: Number(row.plan_y ?? 0),
       rotation: (row.plan_rotation ?? 0) as PlanRotation,
