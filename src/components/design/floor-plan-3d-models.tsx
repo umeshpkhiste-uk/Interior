@@ -343,6 +343,59 @@ export function Furniture3D({ item, roomHeight }: { item: FurnitureItem; roomHei
           </>
         );
       }
+      case "partition": {
+        // Floor-to-ceiling wooden slats with gaps you can see through, on a base and top rail.
+        const tall = roomHeight - 0.02;
+        const slats = Math.max(2, Math.round(w / 0.35));
+        const pitch = w / slats;
+        return (
+          <>
+            <Box x={0} z={0} w={w} d={h} h={0.25} color={C.woodDark} />
+            <Box x={0} z={0} w={w} d={h} y={tall - 0.25} h={0.25} color={C.woodDark} />
+            {Array.from({ length: slats }, (_, i) => (
+              <Box key={i} x={i * pitch + pitch * 0.15} z={h * 0.15} w={pitch * 0.7} d={h * 0.7} y={0.25} h={tall - 0.5} color={C.wood} />
+            ))}
+          </>
+        );
+      }
+      case "breakfast_counter": {
+        // Bar-height counter (3.5 ft) with stools in front of the long side.
+        const stools = Math.max(1, Math.floor(w / 1.8));
+        return (
+          <>
+            <Box x={0.1} z={0.15} w={w - 0.2} d={h - 0.4} h={3.35} color={C.cabinet} />
+            <Box x={0} z={0} w={w} d={h} y={3.35} h={0.15} color={C.granite} roughness={0.35} />
+            {Array.from({ length: stools }, (_, i) => (
+              <group key={i}>
+                <Cyl cx={((i + 0.5) * w) / stools} cz={h + 0.55} rx={0.07} h={2.3} color="#8d969c" />
+                <Cyl cx={((i + 0.5) * w) / stools} cz={h + 0.55} rx={0.5} y={2.3} h={0.15} color={C.chair} />
+              </group>
+            ))}
+          </>
+        );
+      }
+      case "mandir": {
+        // Pooja unit: drawer base, open shrine with gold back panel and a dome on top.
+        const base = 2.4;
+        const shrine = 2.6;
+        const r = Math.min(w, h) * 0.38;
+        return (
+          <>
+            <Box x={0} z={0} w={w} d={h} h={base} color="#c9925a" />
+            <Box x={0.1} z={h - 0.02} w={w - 0.2} d={0.04} y={0.3} h={base - 0.6} color="#e7c27a" />
+            <Box x={0} z={0} w={w} d={0.15} y={base} h={shrine} color="#a8743f" />
+            <Box x={0.15} z={0.15} w={w - 0.3} d={0.04} y={base + 0.2} h={shrine - 0.4} color="#e7c27a" metalness={0.4} roughness={0.4} />
+            <Box x={0} z={0} w={0.15} d={h} y={base} h={shrine} color="#a8743f" />
+            <Box x={w - 0.15} z={0} w={0.15} d={h} y={base} h={shrine} color="#a8743f" />
+            <Box x={0} z={0} w={w} d={h} y={base + shrine} h={0.2} color="#a8743f" />
+            <mesh position={[w / 2, base + shrine + 0.2, h / 2]} castShadow>
+              <sphereGeometry args={[r, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2]} />
+              <meshStandardMaterial color="#e7c27a" metalness={0.4} roughness={0.4} />
+            </mesh>
+            <Cyl cx={w / 2} cz={h * 0.6} rx={0.12} y={base} h={0.1} color="#f08a24" />
+          </>
+        );
+      }
     }
   })();
   // Parts are laid out from the item's top-left corner; shift so the item is centred on its footprint.

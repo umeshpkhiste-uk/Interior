@@ -484,6 +484,46 @@ function renderItem(type: FurnitureItem["type"], w: number, h: number): ReactNod
         </>
       );
     }
+    case "partition": {
+      // Vertical wooden slats (jali) with small gaps, seen from above.
+      const slats = Math.max(2, Math.round(w / 0.35));
+      const pitch = w / slats;
+      return (
+        <>
+          <rect width={w} height={h} fill="#e8dccb" opacity={0.6} />
+          {Array.from({ length: slats }, (_, i) => (
+            <rect key={i} x={i * pitch + pitch * 0.15} y={0} width={pitch * 0.7} height={h} rx={0.03} fill={C.wood} />
+          ))}
+          <rect width={w} height={h} fill="none" stroke={C.woodDark} strokeWidth={0.04} />
+        </>
+      );
+    }
+    case "breakfast_counter": {
+      // Counter top with bar stools along the long front side.
+      const stools = Math.max(1, Math.floor(w / 1.8));
+      return (
+        <>
+          {Array.from({ length: stools }, (_, i) => (
+            <circle key={i} cx={((i + 0.5) * w) / stools} cy={h + 0.55} r={0.5} fill={C.chair} stroke={C.sofaDark} strokeWidth={0.04} />
+          ))}
+          <rect width={w} height={h} rx={0.08} fill={C.granite} />
+          <rect x={0.08} y={0.08} width={w - 0.16} height={h - 0.16} rx={0.05} fill="none" stroke={C.graniteEdge} strokeWidth={0.04} />
+        </>
+      );
+    }
+    case "mandir": {
+      // Wall-mounted pooja unit: wooden cabinet with a small dome outline and a diya.
+      const r = Math.min(w, h) * 0.32;
+      return (
+        <>
+          <rect width={w} height={h} rx={0.06} fill="#c9925a" stroke={C.woodDark} strokeWidth={0.04} />
+          <rect x={0.12} y={0.12} width={w - 0.24} height={h - 0.24} rx={0.05} fill="none" stroke="#e7c27a" strokeWidth={0.05} />
+          <path d={`M ${w / 2 - r} ${h / 2 + r * 0.4} A ${r} ${r} 0 0 1 ${w / 2 + r} ${h / 2 + r * 0.4} Z`} fill="#e7c27a" />
+          <circle cx={w / 2} cy={h / 2 - r * 0.75} r={0.08} fill="#e7c27a" />
+          <circle cx={w / 2} cy={h - 0.3} r={0.1} fill="#f08a24" />
+        </>
+      );
+    }
   }
 }
 

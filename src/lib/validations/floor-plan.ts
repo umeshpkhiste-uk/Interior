@@ -4,7 +4,7 @@ import { ROOM_CATEGORIES } from "@/lib/validations/room";
 export const FURNITURE_TYPES = [
   "bed", "side_table", "wardrobe", "sofa", "coffee_table", "tv_unit", "dining_set", "study_table",
   "counter_straight", "counter_l", "sink", "hob", "wc", "basin", "washer", "rug", "plant",
-  "armchair", "bathtub", "shower", "car", "stairs",
+  "armchair", "bathtub", "shower", "car", "stairs", "partition", "breakfast_counter", "mandir",
 ] as const;
 
 export type FurnitureType = (typeof FURNITURE_TYPES)[number];
@@ -32,6 +32,9 @@ export const FURNITURE_LABELS: Record<FurnitureType, string> = {
   shower: "Shower area",
   car: "Car",
   stairs: "Staircase",
+  partition: "Wooden partition",
+  breakfast_counter: "Breakfast counter",
+  mandir: "Mandir",
 };
 
 /** Default own size (w along x, h along y) in feet. */
@@ -58,6 +61,9 @@ export const FURNITURE_SIZES: Record<FurnitureType, { w: number; h: number }> = 
   shower: { w: 3, h: 3 },
   car: { w: 6, h: 14.5 },
   stairs: { w: 3.5, h: 10 },
+  partition: { w: 6, h: 0.5 },
+  breakfast_counter: { w: 5, h: 1.6 },
+  mandir: { w: 3, h: 1.6 },
 };
 
 export const PLAN_WALLS = ["top", "right", "bottom", "left"] as const;

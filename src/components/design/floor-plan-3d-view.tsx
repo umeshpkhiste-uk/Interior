@@ -798,8 +798,10 @@ function applyCameraMode(c: CameraControlsImpl, eye: boolean, area: THREE.Box3 |
   if (eye) {
     c.minPolarAngle = 0.35;
     c.maxPolarAngle = Math.PI - 0.35;
-    c.azimuthRotateSpeed = -0.35;
-    c.polarRotateSpeed = -0.35;
+    // Positive speeds with the target just ahead: the view turns the way you drag
+    // (drag right → look right, drag up → look up).
+    c.azimuthRotateSpeed = 0.35;
+    c.polarRotateSpeed = 0.35;
     c.mouseButtons.left = A.ROTATE;
     c.mouseButtons.middle = A.NONE;
     c.mouseButtons.right = A.NONE;
