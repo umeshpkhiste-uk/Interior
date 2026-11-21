@@ -31,28 +31,9 @@ const C = {
 
 export type FloorKind = FloorMaterial;
 
-/** The room's chosen floor material, or the default for its type. */
-export function floorKind(room: Pick<FloorPlanRoom, "category" | "floorMaterial">): FloorKind {
-  if (room.floorMaterial) return room.floorMaterial;
-  switch (room.category) {
-    case "master_bedroom":
-    case "bedroom_2":
-    case "bedroom_3":
-    case "staircase":
-      return "wood";
-    case "bathroom":
-    case "utility":
-      return "wetTile";
-    case "balcony":
-    case "porch":
-      return "stone";
-    case "garage":
-      return "concrete";
-    case "passage":
-      return "paver";
-    default:
-      return "tile";
-  }
+/** The house floor (the same in every room, so the plan reads as one home); tiles by default. */
+export function floorKind(room: Pick<FloorPlanRoom, "floorMaterial">): FloorKind {
+  return room.floorMaterial ?? "tile";
 }
 
 export const FLOOR_FILL: Record<FloorKind, string> = {

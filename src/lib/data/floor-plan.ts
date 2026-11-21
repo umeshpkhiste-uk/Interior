@@ -24,17 +24,24 @@ export type FloorPlanResult = {
   passage: PlanPassage;
 };
 
-async function getPlanPassage(organizationId: string, projectId: string): Promise<PlanPassage> {
+async function getPlanSettings(
+  organizationId: string,
+  projectId: string
+): Promise<{ passage: PlanPassage; houseFloor: FloorMaterial | null }> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("projects")
-    .select("plan_passage")
+    .select("plan_passage, plan_floor_material")
     .eq("organization_id", organizationId)
     .eq("id", projectId)
     .maybeSingle();
   if (error) throw error;
   const parsed = passageSchema.safeParse(data?.plan_passage);
-  return parsed.success ? parsed.data : NO_PASSAGE;
+  const floor = data?.plan_floor_material ?? "";
+  return {
+    passage: parsed.success ? parsed.data : NO_PASSAGE,
+    houseFloor: (FLOOR_MATERIALS as readonly string[]).includes(floor) ? (floor as FloorMaterial) : null,
+  };
 }
 
 /**
@@ -42,9 +49,9 @@ async function getPlanPassage(organizationId: string, projectId: string): Promis
  * (new, or never saved) is auto-arranged in rows beneath the placed ones.
  */
 export async function getFloorPlan(organizationId: string, projectId: string): Promise<FloorPlanResult> {
-  const [rows, passage] = await Promise.all([
+  const [rows, { passage, houseFloor }] = await Promise.all([
     listRoomsForProject(organizationId, projectId),
-    getPlanPassage(organizationId, projectId),
+    getPlanSettings(organizationId, projectId),
   ]);
 
   if (rows.length === 0) {
@@ -110,9 +117,8 @@ export async function getFloorPlan(organizationId: string, projectId: string): P
       openings,
       furniture,
       wallColor: row.plan_wall_color,
-      floorMaterial: (FLOOR_MATERIALS as readonly string[]).includes(row.plan_floor_material ?? "")
-        ? (row.plan_floor_material as FloorMaterial)
-        : null,
+      // One floor for the whole house, so rooms don't look like separate buildings.
+      floorMaterial: houseFloor,
       wallGaps: wallGapSchema.array().safeParse(row.plan_wall_gaps).data ?? [],
       openWalls: (row.plan_open_walls ?? []).filter((w): w is (typeof PLAN_WALLS)[number] =>
         (PLAN_WALLS as readonly string[]).includes(w)

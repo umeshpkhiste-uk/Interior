@@ -2705,6 +2705,7 @@ export type Database = {
           id: string
           name: string
           organization_id: string
+          plan_floor_material: string | null
           plan_passage: Json | null
           project_code: string
           property_address: string | null
@@ -2727,6 +2728,7 @@ export type Database = {
           id?: string
           name: string
           organization_id: string
+          plan_floor_material?: string | null
           plan_passage?: Json | null
           project_code: string
           property_address?: string | null
@@ -2749,6 +2751,7 @@ export type Database = {
           id?: string
           name?: string
           organization_id?: string
+          plan_floor_material?: string | null
           plan_passage?: Json | null
           project_code?: string
           property_address?: string | null

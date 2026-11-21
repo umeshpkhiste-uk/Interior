@@ -4,7 +4,10 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireCurrentUserContext } from "@/lib/data/organization";
 import { createOpening, createRoom, deleteOpening, updateOpening, updateRoom } from "@/lib/actions/rooms";
+import { z } from "zod";
 import {
+  FLOOR_MATERIALS,
+  type FloorMaterial,
   floorPlanSaveSchema,
   newAreaSchema,
   newOpeningSchema,
@@ -232,6 +235,25 @@ export async function addFloorPlanOpening(projectId: string, input: NewOpeningIn
 
   revalidatePath("/design/2d");
   return { error: null, data: { id: created.data.id } };
+}
+
+/** Sets the floor finish of the whole house (null = the default tiles). */
+export async function saveHouseFloor(projectId: string, floorMaterial: FloorMaterial | null): Promise<ActionResult> {
+  const parsed = z.enum(FLOOR_MATERIALS).nullable().safeParse(floorMaterial);
+  if (!parsed.success) return { error: "Invalid floor" };
+
+  const ctx = await requireCurrentUserContext();
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("projects")
+    .update({ plan_floor_material: parsed.data })
+    .eq("id", projectId)
+    .eq("organization_id", ctx.organizationId);
+  if (error) return { error: error.message };
+
+  revalidatePath("/design/2d");
+  revalidatePath("/design/3d");
+  return { error: null, data: undefined };
 }
 
 /** Saves a room's wall paint and floor material (null = back to the default). */

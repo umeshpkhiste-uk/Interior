@@ -44,7 +44,7 @@ import {
   type PlanPassage,
   type RoomFinishInput,
 } from "@/lib/validations/floor-plan";
-import { saveRoomFinish } from "@/lib/actions/floor-plan";
+import { saveHouseFloor, saveRoomFinish } from "@/lib/actions/floor-plan";
 import { cn } from "@/lib/utils";
 import { floorKind, HEDGE_FT, WALL_FT, type FloorKind } from "./floor-plan-symbols";
 import { Furniture3D } from "./floor-plan-3d-models";
@@ -110,7 +110,12 @@ export function FloorPlan3DView({
   const [finishes, setFinishes] = useState<Record<string, Finish>>(() =>
     Object.fromEntries(savedRooms.map((r) => [r.id, { wallColor: r.wallColor, floorMaterial: r.floorMaterial }]))
   );
-  const rooms = useMemo(() => savedRooms.map((r) => ({ ...r, ...finishes[r.id] })), [savedRooms, finishes]);
+  // The floor is one finish for the whole house.
+  const [houseFloor, setHouseFloor] = useState<FloorMaterial | null>(() => savedRooms[0]?.floorMaterial ?? null);
+  const rooms = useMemo(
+    () => savedRooms.map((r) => ({ ...r, ...finishes[r.id], floorMaterial: houseFloor })),
+    [savedRooms, finishes, houseFloor]
+  );
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
   const pending = useRef(new Map<string, RoomFinishInput>());
@@ -146,6 +151,17 @@ export function FloorPlan3DView({
     setSaveState("saving");
     if (timer.current) clearTimeout(timer.current);
     timer.current = setTimeout(() => void flush(), SAVE_DELAY_MS);
+  }
+
+  function updateHouseFloor(floor: FloorMaterial | null) {
+    setHouseFloor(floor);
+    setSaveState("saving");
+    void saveHouseFloor(projectId, floor).then((result) => {
+      if (result.error) {
+        toast.error(`Couldn't save the floor: ${result.error}`);
+        setSaveState("idle");
+      } else setSaveState("saved");
+    });
   }
 
   const selectedRoom = rooms.find((r) => r.id === selectedId) ?? null;
@@ -441,7 +457,7 @@ export function FloorPlan3DView({
                 building={building}
                 cutaway={cutaway && !walk}
                 eyeLevel={walk}
-                labels={labels && !walk}
+                labels={labels}
                 selectedId={selectedId}
                 onSelect={setSelectedId}
                 onWalkTo={walkTo}
@@ -507,6 +523,8 @@ export function FloorPlan3DView({
           selected={selectedRoom}
           onSelect={setSelectedId}
           onChange={updateFinish}
+          houseFloor={houseFloor}
+          onFloorChange={updateHouseFloor}
           saveState={saveState}
         />
       </div>
@@ -586,15 +604,19 @@ function FinishesPanel({
   selected,
   onSelect,
   onChange,
+  houseFloor,
+  onFloorChange,
   saveState,
 }: {
   rooms: FloorPlanRoom[];
   selected: FloorPlanRoom | null;
   onSelect: (id: string | null) => void;
   onChange: (roomId: string, patch: Partial<Finish>) => void;
+  houseFloor: FloorMaterial | null;
+  onFloorChange: (floor: FloorMaterial | null) => void;
   saveState: "idle" | "saving" | "saved";
 }) {
-  const currentFloor = selected ? floorKind(selected) : null;
+  const currentFloor = floorKind({ floorMaterial: houseFloor });
   const currentWall = selected?.wallColor ?? DEFAULT_WALL_COLOR;
   return (
     <div className="flex flex-col gap-4 rounded-lg border p-3">
@@ -628,8 +650,8 @@ function FinishesPanel({
 
       {!selected ? (
         <p className="text-xs text-muted-foreground">
-          Click a room in the model, or choose one above, to set its wall paint and floor. Changes save automatically and
-          show on the 2D plan too.
+          Click a room in the model, or choose one above, to set its wall paint. Changes save automatically and show on
+          the 2D plan too.
         </p>
       ) : (
         <>
@@ -678,40 +700,41 @@ function FinishesPanel({
             </div>
           </div>
 
-          <div className="flex flex-col gap-2">
-            <p className="text-xs font-medium text-muted-foreground">Floor</p>
-            <div className="grid grid-cols-2 gap-1.5">
-              {FLOOR_MATERIALS.map((m) => {
-                const on = currentFloor === m;
-                return (
-                  <button
-                    key={m}
-                    type="button"
-                    aria-pressed={on}
-                    onClick={() => onChange(selected.id, { floorMaterial: m })}
-                    className={cn(
-                      "flex items-center gap-2 rounded-md border px-2 py-1.5 text-left text-xs transition hover:bg-muted/60",
-                      on && "border-primary bg-muted"
-                    )}
-                  >
-                    <span className="size-4 shrink-0 rounded-sm ring-1 ring-black/10" style={{ background: FLOOR_MATERIAL_INFO[m].swatch }} />
-                    {FLOOR_MATERIAL_INFO[m].label}
-                  </button>
-                );
-              })}
-            </div>
-            <Button
-              size="xs"
-              variant="ghost"
-              className="self-end"
-              disabled={!selected.floorMaterial}
-              onClick={() => onChange(selected.id, { floorMaterial: null })}
-            >
-              Default for room type
-            </Button>
-          </div>
         </>
       )}
+
+      <div className="flex flex-col gap-2">
+        <p className="text-xs font-medium text-muted-foreground">Floor (whole house)</p>
+        <div className="grid grid-cols-2 gap-1.5">
+          {FLOOR_MATERIALS.map((m) => {
+            const on = currentFloor === m;
+            return (
+              <button
+                key={m}
+                type="button"
+                aria-pressed={on}
+                onClick={() => onFloorChange(m)}
+                className={cn(
+                  "flex items-center gap-2 rounded-md border px-2 py-1.5 text-left text-xs transition hover:bg-muted/60",
+                  on && "border-primary bg-muted"
+                )}
+              >
+                <span className="size-4 shrink-0 rounded-sm ring-1 ring-black/10" style={{ background: FLOOR_MATERIAL_INFO[m].swatch }} />
+                {FLOOR_MATERIAL_INFO[m].label}
+              </button>
+            );
+          })}
+        </div>
+        <Button
+          size="xs"
+          variant="ghost"
+          className="self-end"
+          disabled={!houseFloor}
+          onClick={() => onFloorChange(null)}
+        >
+          Default (tiles)
+        </Button>
+      </div>
     </div>
   );
 }
@@ -1242,7 +1265,8 @@ const Scene = memo(function Scene({
     if (e.delta <= 4) onSelect(roomId);
   };
   // Room names and sizes show only for the room under the pointer.
-  const [hoverId, setHoverId] = useState<string | null>(null);
+  const [hover, setHover] = useState<{ id: string; at: [number, number, number] } | null>(null);
+  const hoverId = hover?.id ?? null;
   // Whatever the pointer is on (floor, wall or furniture), the room is the one holding the
   // nearest hit point; walls count for the room whose side you're looking at.
   const hoverAt = (e: ThreeEvent<PointerEvent>) => {
@@ -1258,7 +1282,15 @@ const Scene = memo(function Scene({
       topFirst.find((r) => containsPoint(r, p.x, p.z)) ??
       topFirst.filter((r) => near(r) <= WALL_FT).sort((a, b) => near(a) - near(b))[0];
     const id = room?.id ?? null;
-    setHoverId((current) => (current === id ? current : id));
+    // At eye level the label sits where you point (the room's centre is often behind you);
+    // it only moves once the pointer has travelled a little, to keep re-renders down.
+    const at: [number, number, number] = [p.x, p.y, p.z];
+    setHover((current) => {
+      if (!id) return null;
+      if (current?.id === id && (!eyeLevel || Math.hypot(current.at[0] - at[0], current.at[1] - at[1], current.at[2] - at[2]) < 0.75))
+        return current;
+      return { id, at };
+    });
   };
   const standAt = (roomId: string | null) => (e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation();
@@ -1282,7 +1314,7 @@ const Scene = memo(function Scene({
   const floorOrder = [...rooms].sort((a, b) => Number(isPassage(b)) - Number(isPassage(a)));
 
   return (
-    <group onPointerMove={hoverAt} onPointerLeave={() => setHoverId(null)}>
+    <group onPointerMove={hoverAt} onPointerLeave={() => setHover(null)}>
       <mesh position={[(plot.minX + plot.maxX) / 2, -0.02, (plot.minY + plot.maxY) / 2]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
         <planeGeometry args={[(plot.maxX - plot.minX) * 6 + 60, (plot.maxY - plot.minY) * 6 + 60]} />
         <meshStandardMaterial color="#e9e3d8" roughness={1} />
@@ -1370,10 +1402,14 @@ const Scene = memo(function Scene({
       {rooms.map((room) => {
           const { w, h } = footprint(room);
           const y = (cutaway ? Math.min(room.heightFt, CUTAWAY_FT) : room.heightFt) + 0.8;
+          const position: [number, number, number] =
+            eyeLevel && hover?.id === room.id
+              ? [hover.at[0], Math.min(hover.at[1] + 0.6, room.heightFt - 0.4), hover.at[2]]
+              : [room.x + w / 2, y, room.y + h / 2];
           return (
             <Html
               key={`label-${room.id}`}
-              position={[room.x + w / 2, y, room.y + h / 2]}
+              position={position}
               center
               zIndexRange={[20, 0]}
               pointerEvents="none"
