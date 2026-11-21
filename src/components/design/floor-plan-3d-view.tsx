@@ -174,6 +174,13 @@ export function FloorPlan3DView({
       ),
     [building, passage, center]
   );
+  // Everything you'd bump into at eye level: walls, window sills and glass. Door lintels are overhead.
+  const colliders = useMemo<Rect[]>(() => {
+    const { walls, glass } = buildWalls(rooms, false);
+    return [...walls, ...glass]
+      .filter((b) => b.y0 < EYE_FT && b.y1 > 0.5)
+      .map((b) => ({ minX: b.x - center.x, maxX: b.x + b.w - center.x, minZ: b.z - center.z, maxZ: b.z + b.d - center.z }));
+  }, [rooms, center]);
   const indoorRooms = useMemo(() => {
     const inside = rooms.filter((r) => !isPassage(r));
     return inside.length > 0 ? inside : rooms;
@@ -418,7 +425,7 @@ export function FloorPlan3DView({
             </group>
             <Lights span={span} />
             <CameraControls ref={controlsRef} makeDefault smoothTime={0.3} onControlStart={stopTour} />
-            <CameraRig controlsRef={controlsRef} configure={configure} walk={walk} keys={keys} />
+            <CameraRig controlsRef={controlsRef} configure={configure} walk={walk} keys={keys} colliders={colliders} />
           </Canvas>
 
           <HeightSlider
@@ -774,17 +781,76 @@ function applyCameraMode(c: CameraControlsImpl, eye: boolean, area: THREE.Box3 |
   }
 }
 
+type Rect = { minX: number; maxX: number; minZ: number; maxZ: number };
+/** How close the walker's eye may get to a wall, in feet. */
+const BODY_FT = 0.7;
+const SUBSTEP_FT = 0.2;
+
+/** How far a body standing at (x, z) sinks into the nearest obstacle; ≤ 0 means it's clear. */
+function penetration(x: number, z: number, rects: Rect[]): number {
+  let worst = -Infinity;
+  for (const r of rects) {
+    const dx = Math.max(r.minX - x, 0, x - r.maxX);
+    const dz = Math.max(r.minZ - z, 0, z - r.maxZ);
+    worst = Math.max(worst, BODY_FT - Math.hypot(dx, dz));
+  }
+  return worst;
+}
+
+const _pos = new THREE.Vector3();
+const _target = new THREE.Vector3();
+
+/**
+ * Walks by (ahead, side) feet relative to where the camera faces, stopping at walls and
+ * sliding along them. Long moves are taken in small steps so a fast scroll can't jump a wall.
+ * If you start inside an obstacle (e.g. after double-clicking right next to a wall), only
+ * moves that get you out are allowed.
+ */
+function walkBy(c: CameraControlsImpl, ahead: number, side: number, rects: Rect[], smooth: boolean) {
+  const p = c.getPosition(_pos, true);
+  const t = c.getTarget(_target, true);
+  let fx = t.x - p.x;
+  let fz = t.z - p.z;
+  const len = Math.hypot(fx, fz);
+  if (len < 1e-6) return;
+  fx /= len;
+  fz /= len;
+  const dx = fx * ahead - fz * side;
+  const dz = fz * ahead + fx * side;
+  const steps = Math.max(1, Math.ceil(Math.hypot(dx, dz) / SUBSTEP_FT));
+  let x = p.x;
+  let z = p.z;
+  const free = (nx: number, nz: number) => {
+    const depth = penetration(nx, nz, rects);
+    return depth <= 0 || depth < penetration(x, z, rects) - 1e-6;
+  };
+  for (let i = 0; i < steps; i++) {
+    const sx = dx / steps;
+    const sz = dz / steps;
+    if (free(x + sx, z + sz)) {
+      x += sx;
+      z += sz;
+    } else if (sx !== 0 && free(x + sx, z)) x += sx;
+    else if (sz !== 0 && free(x, z + sz)) z += sz;
+    else break;
+  }
+  if (x === p.x && z === p.z) return;
+  void c.moveTo(t.x + (x - p.x), t.y, t.z + (z - p.z), smooth);
+}
+
 /** Applies the camera mode, eases the field of view, and moves the walker from held keys. */
 function CameraRig({
   controlsRef,
   configure,
   walk,
   keys,
+  colliders,
 }: {
   controlsRef: React.RefObject<CameraControlsImpl | null>;
   configure: (c: CameraControlsImpl, eye: boolean) => void;
   walk: boolean;
   keys: React.RefObject<Set<WalkKey>>;
+  colliders: Rect[];
 }) {
   const gl = useThree((s) => s.gl);
 
@@ -799,11 +865,12 @@ function CameraRig({
     const el = gl.domElement;
     const onWheel = (e: WheelEvent) => {
       e.preventDefault();
-      void controlsRef.current?.forward(-e.deltaY * 0.012, true);
+      const c = controlsRef.current;
+      if (c) walkBy(c, -e.deltaY * 0.012, 0, colliders, true);
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
-  }, [walk, gl, controlsRef]);
+  }, [walk, gl, controlsRef, colliders]);
 
   useFrame((state, delta) => {
     const camera = state.camera as THREE.PerspectiveCamera;
@@ -820,8 +887,7 @@ function CameraRig({
     const ahead = Number(held.has("forward")) - Number(held.has("back"));
     const side = Number(held.has("right")) - Number(held.has("left"));
     const turn = Number(held.has("turnLeft")) - Number(held.has("turnRight"));
-    if (ahead) void c.forward(ahead * step, false);
-    if (side) void c.truck(side * step, 0, false);
+    if (ahead || side) walkBy(c, ahead * step, side * step, colliders, false);
     if (turn) void c.rotate(turn * TURN_SPEED * dt, 0, false);
   });
 
