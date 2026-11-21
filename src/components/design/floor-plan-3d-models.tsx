@@ -412,7 +412,7 @@ export const WALL_DESIGN_DEPTH: Record<WallDesignType, number> = { shelves: 0.8,
 export function WallDesign3D({ design, length, height }: { design: WallDesignType; length: number; height: number }) {
   const top = Math.min(8, height - 0.5);
   if (design === "shelves") {
-    const w = Math.max(1.5, Math.min(length * 0.7, length - 1));
+    const w = Math.max(1, Math.min(length * 0.7, length - 0.5));
     const levels = [3.5, 4.75, 6, 7.25].filter((y) => y < top);
     return (
       <group position={[-w / 2, 0, 0]}>
@@ -429,7 +429,7 @@ export function WallDesign3D({ design, length, height }: { design: WallDesignTyp
     );
   }
   // Display unit: closed base cabinet, wooden back panel, open shelves in three bays above.
-  const w = Math.max(2, length - 0.6);
+  const w = Math.max(1, length - 0.2);
   const base = 2.5;
   const bays = Math.max(1, Math.min(4, Math.round(w / 3)));
   const shelfYs = [base + 1.4, base + 2.8, base + 4.2].filter((y) => y < top - 0.3);

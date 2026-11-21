@@ -31,6 +31,7 @@ import {
   itemPlanRect,
   openingSpans,
   toPlanSide,
+  wallGapLine,
   wallSegments,
   type FloorPlanRoom,
   type OpeningSpan,
@@ -248,16 +249,16 @@ export function FloorPlan3DView({
         if (!design) return [];
         const line = roomWallLine(room, wall);
         const depth = WALL_FT / 2 + WALL_DESIGN_DEPTH[design];
-        const [x0, x1] = line.horizontal ? [line.from, line.to] : [line.at, line.at + line.inward[0] * depth];
-        const [z0, z1] = line.horizontal ? [line.at, line.at + line.inward[1] * depth] : [line.from, line.to];
-        return [
-          {
+        return designSpans(rooms, room, wall).map((span) => {
+          const [x0, x1] = line.horizontal ? [span.from, span.to] : [line.at, line.at + line.inward[0] * depth];
+          const [z0, z1] = line.horizontal ? [line.at, line.at + line.inward[1] * depth] : [span.from, span.to];
+          return {
             minX: Math.min(x0, x1) - center.x,
             maxX: Math.max(x0, x1) - center.x,
             minZ: Math.min(z0, z1) - center.z,
             maxZ: Math.max(z0, z1) - center.z,
-          },
-        ];
+          };
+        });
       })
     );
     return [...structure, ...furniture, ...designs];
@@ -1297,6 +1298,34 @@ function roomWallLine(room: FloorPlanRoom, wall: Wall) {
   return { side, horizontal, at, from, to, inward, length: to - from };
 }
 
+/** Space kept clear beside a door or window, in feet. */
+const DESIGN_CLEARANCE_FT = 0.3;
+/** Pieces of wall shorter than this get no design. */
+const MIN_DESIGN_FT = 1.5;
+
+/**
+ * The stretches of a design wall a design can go on: the wall's length minus its doors and
+ * windows (with a little clearance) and any removed pieces of wall. Plan coordinates along the wall.
+ */
+function designSpans(rooms: FloorPlanRoom[], room: FloorPlanRoom, wall: Wall): { from: number; to: number }[] {
+  if (room.openWalls.includes(wall)) return [];
+  const line = roomWallLine(room, wall);
+  const onLine = (o: { horizontal: boolean; at: number }) => o.horizontal === line.horizontal && Math.abs(o.at - line.at) < 0.2;
+  const cuts = [
+    ...openingSpans(rooms).filter(onLine).map((o) => [o.from - DESIGN_CLEARANCE_FT, o.to + DESIGN_CLEARANCE_FT]),
+    ...rooms.flatMap((r) => (r.wallGaps ?? []).map((g) => wallGapLine(r, g))).filter(onLine).map((g) => [g.from, g.to]),
+  ].sort((a, b) => a[0] - b[0]);
+  const spans: { from: number; to: number }[] = [];
+  let cursor = line.from;
+  for (const [from, to] of cuts) {
+    if (to <= cursor || from >= line.to) continue;
+    if (from - cursor >= MIN_DESIGN_FT) spans.push({ from: cursor, to: from });
+    cursor = Math.max(cursor, to);
+  }
+  if (line.to - cursor >= MIN_DESIGN_FT) spans.push({ from: cursor, to: line.to });
+  return spans;
+}
+
 /** The room's own wall lying on a wall line (the one a clicked wall skin belongs to). */
 function wallOnLine(room: FloorPlanRoom, lineKey: string): Wall | null {
   return (
@@ -1587,16 +1616,19 @@ const Scene = memo(function Scene({
         (room.wallDesigns ?? []).flatMap(({ wall, design }) => {
           if (!design) return [];
           const line = roomWallLine(room, wall);
-          const mid = (line.from + line.to) / 2;
           const face = line.at + (line.horizontal ? line.inward[1] : line.inward[0]) * (WALL_FT / 2);
-          const position: [number, number, number] = line.horizontal ? [mid, 0.012, face] : [face, 0.012, mid];
           // Turn the design's +z (out of the wall) to point into the room.
           const angle = Math.atan2(line.inward[0], line.inward[1]);
-          return [
-            <group key={`design-${room.id}-${wall}`} position={position} rotation={[0, angle, 0]} onClick={pick(room.id)}>
-              <WallDesign3D design={design} length={line.length} height={room.heightFt} />
-            </group>,
-          ];
+          // One piece per stretch of wall between doors and windows.
+          return designSpans(rooms, room, wall).map((span) => {
+            const mid = (span.from + span.to) / 2;
+            const position: [number, number, number] = line.horizontal ? [mid, 0.012, face] : [face, 0.012, mid];
+            return (
+              <group key={`design-${room.id}-${wall}-${span.from}`} position={position} rotation={[0, angle, 0]} onClick={pick(room.id)}>
+                <WallDesign3D design={design} length={span.to - span.from} height={room.heightFt} />
+              </group>
+            );
+          });
         })
       )}
       {glass.map((b, i) => (
